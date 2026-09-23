@@ -1,0 +1,6 @@
+<svg width="400" height="200" viewBox="0 0 400 200" xmlns="http://www.w3.org/2000/svg">
+  <rect width="400" height="200" fill="#FF004E" />
+  <circle cx="335" cy="45" r="26" fill="#FFD527" />
+  <text x="35" y="122" font-family="Arial, sans-serif" font-size="52" font-weight="800" fill="#FBF3E6" letter-spacing="2">XYAMI</text>
+  <text x="35" y="155" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#FBF3E6" opacity="0.75" letter-spacing="1">O CENTRO DA NOSSA TERRA</text>
+</svg>

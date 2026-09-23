@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// Role: "ORGANIZADOR" | "STAFF_PORTA"
+/// ReservationStatus: "PENDENTE" | "CONFIRMADO" | "CANCELADO" | "UTILIZADO"
+
+model BackofficeUser {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         String   @default("STAFF_PORTA")
+  createdAt    DateTime @default(now())
+}
+
+model TicketType {
+  id           String        @id @default(uuid())
+  name         String
+  description  String
+  refPrice     Int
+  peopleCount  Int           @default(1)
+  active       Boolean       @default(true)
+  sortOrder    Int           @default(0)
+  reservations Reservation[]
+}
+
+model Reservation {
+  id            String            @id @default(uuid())
+  fullName      String
+  contact       String
+  contactNorm   String
+  ticketTypeId  String
+  ticketType    TicketType        @relation(fields: [ticketTypeId], references: [id])
+  quantity      Int               @default(1)
+  notes         String?
+  status        String            @default("PENDENTE")
+  qrCode        String?           @unique
+  createdAt     DateTime          @default(now())
+  confirmedAt   DateTime?
+  checkedInAt   DateTime?
+
+  @@index([contactNorm])
+  @@index([status])
+}

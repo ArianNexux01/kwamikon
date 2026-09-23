@@ -1,0 +1,7 @@
+<svg width="400" height="200" viewBox="0 0 400 200" xmlns="http://www.w3.org/2000/svg">
+  <rect width="400" height="200" fill="#FFD527" />
+  <polygon points="330,60 330,110 370,85" fill="#161616" />
+  <circle cx="350" cy="85" r="34" fill="none" stroke="#161616" stroke-width="3" />
+  <text x="30" y="115" font-family="Arial, sans-serif" font-size="56" font-weight="800" fill="#161616" letter-spacing="2">MUVI</text>
+  <text x="30" y="148" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#161616" opacity="0.75" letter-spacing="1">PRODUTORA</text>
+</svg>

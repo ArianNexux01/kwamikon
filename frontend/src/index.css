@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-ink text-cream font-sans antialiased;
+  }
+
+  ::selection {
+    @apply bg-magenta text-cream;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-sans font-extrabold tracking-tight;
+  }
+}
+
+@layer utilities {
+  /* Textura de grão reutilizável sobre qualquer fundo sólido/gradiente */
+  .grain::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: url('/textures/grain.svg');
+    background-size: 220px 220px;
+    opacity: 0.18;
+    mix-blend-mode: overlay;
+    pointer-events: none;
+  }
+
+  .grain {
+    position: relative;
+    isolation: isolate;
+  }
+
+  /* Cortes assimétricos, energia de colagem */
+  .cut-tl {
+    clip-path: polygon(0 6%, 100% 0, 100% 100%, 0 100%);
+  }
+  .cut-br {
+    clip-path: polygon(0 0, 100% 0, 100% 94%, 0 100%);
+  }
+  .cut-tag {
+    clip-path: polygon(0 0, 92% 0, 100% 18%, 100% 100%, 8% 100%, 0 82%);
+  }
+
+  .rot-1 {
+    transform: rotate(-1.5deg);
+  }
+  .rot-2 {
+    transform: rotate(1.75deg);
+  }
+  .rot-3 {
+    transform: rotate(-2.5deg);
+  }
+
+  .text-outline {
+    -webkit-text-stroke: 1.5px #ff004e;
+  }
+
+  .focus-ring {
+    @apply outline-none ring-2 ring-yellow ring-offset-2 ring-offset-ink;
+  }
+
+  .input {
+    @apply w-full border-2 border-cream/20 bg-ink px-4 py-2.5 text-cream placeholder:text-cream/30 focus:border-yellow focus:outline-none;
+  }
+}
