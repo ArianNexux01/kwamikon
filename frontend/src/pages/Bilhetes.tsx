@@ -1,157 +1,155 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { SectionHeading } from '../components/SectionHeading';
 import { TicketCardBody } from '../components/TicketCardBody';
-import { api, ApiError, type Reservation, type TicketType } from '../lib/api';
+import { PaymentStep } from '../components/PaymentStep';
+import { CheckoutStepper, type CheckoutStep } from '../components/CheckoutStepper';
+import { api, ApiError, type Payment, type Reservation, type TicketType } from '../lib/api';
 import { formatKz } from '../lib/format';
-import { EVENT, PAYMENT_INSTRUCTIONS_PLACEHOLDER } from '../lib/site-content';
+import { EVENT } from '../lib/site-content';
+import { loadCheckout, saveCheckout } from '../lib/checkout';
 
 export function Bilhetes() {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [stored] = useState(loadCheckout);
+
   const [ticketTypes, setTicketTypes] = useState<TicketType[]>([]);
   const [loadingTypes, setLoadingTypes] = useState(true);
-  const [ticketTypeId, setTicketTypeId] = useState('');
+  const [step, setStep] = useState<CheckoutStep>(stored ? 3 : 1);
+  const [ticketTypeId, setTicketTypeId] = useState(stored?.reservation.ticketTypeId ?? '');
+  const [quantity, setQuantity] = useState(stored?.reservation.quantity ?? 1);
   const [fullName, setFullName] = useState('');
   const [contact, setContact] = useState('');
-  const [quantity, setQuantity] = useState(1);
+  const [email, setEmail] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<Reservation | null>(null);
+  const [reservation, setReservation] = useState<Reservation | null>(stored?.reservation ?? null);
+  const [paymentId, setPaymentId] = useState(stored?.paymentId);
+  // Voltou da página de pagamento da Vero mas esta sessão do browser já não tem a reserva.
+  const returnedWithoutCheckout = !stored && searchParams.has('pagamento');
 
   useEffect(() => {
     api.ticketTypes
       .list()
       .then((types) => {
         setTicketTypes(types);
-        if (types[0]) setTicketTypeId(types[0].id);
+        if (stored) return;
+        // Vindo de um cartão da Home (/bilhetes?pacote=<id>) o pacote já está escolhido.
+        const preselected = types.find((t) => t.id === searchParams.get('pacote'));
+        if (preselected) {
+          setTicketTypeId(preselected.id);
+          setStep(2);
+        } else if (types[0]) {
+          setTicketTypeId(types[0].id);
+        }
       })
       .catch(() => setError('Não foi possível carregar os tipos de bilhete. Tenta novamente mais tarde.'))
       .finally(() => setLoadingTypes(false));
-  }, []);
+  }, [searchParams, stored]);
 
-  const selectedType = ticketTypes.find((t) => t.id === ticketTypeId);
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [step]);
 
-  async function handleSubmit(e: FormEvent) {
+  const selectedType = reservation?.ticketType ?? ticketTypes.find((t) => t.id === ticketTypeId);
+
+  function goToDetails(e: FormEvent) {
     e.preventDefault();
     setError(null);
-
     if (!ticketTypeId) {
       setError('Escolhe um tipo de bilhete.');
       return;
     }
+    setStep(2);
+  }
 
+  async function createReservation(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
     setSubmitting(true);
     try {
-      const reservation = await api.reservations.create({
+      const created = await api.reservations.create({
         fullName: fullName.trim(),
         contact: contact.trim(),
+        email: email.trim(),
         ticketTypeId,
         quantity,
         notes: notes.trim() || undefined,
       });
-      setResult(reservation);
+      setReservation(created);
+      saveCheckout({ reservation: created });
+      setStep(3);
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message);
-      } else {
-        setError('Não foi possível submeter a reserva. Verifica a ligação e tenta novamente.');
-      }
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : 'Não foi possível submeter a reserva. Verifica a ligação e tenta novamente.',
+      );
     } finally {
       setSubmitting(false);
     }
   }
 
-  if (result) {
-    return (
-      <div className="mx-auto max-w-2xl px-4 py-16 sm:px-6 sm:py-24">
-        <span className="inline-block -rotate-2 cut-tag bg-yellow px-4 py-1.5 text-xs font-extrabold uppercase tracking-[0.2em] text-ink">
-          Reserva recebida
-        </span>
-        <h1 className="mt-6 text-3xl font-extrabold text-cream sm:text-4xl">Falta pouco, {result.fullName.split(' ')[0]}!</h1>
+  function handlePaymentChange(payment: Payment | null) {
+    if (!reservation) return;
+    setPaymentId(payment?.id);
+    saveCheckout({ reservation, paymentId: payment?.id });
+  }
 
-        <div className="mt-8 space-y-3 border-2 border-cream/15 bg-ink-soft p-6">
-          <Row label="Bilhete" value={`${result.ticketType.name} × ${result.quantity}`} />
-          <Row label="Total de referência" value={formatKz(result.ticketType.refPrice * result.quantity)} />
-          <Row label="Contacto" value={result.contact} />
-          <Row label="Estado" value="Pendente de pagamento" />
-        </div>
-
-        <div className="mt-6 border-l-4 border-magenta bg-ink-soft p-5 text-sm text-cream/85">
-          {PAYMENT_INSTRUCTIONS_PLACEHOLDER}
-        </div>
-
-        <p className="mt-6 text-sm text-cream/50">
-          Guarda o contacto que usaste ({result.contact}) — é através dele que a organização confirma o teu
-          pagamento e ativa o teu bilhete com QR code.
-        </p>
-      </div>
-    );
+  function handlePaid() {
+    if (!reservation) return;
+    navigate(`/bilhetes/sucesso?reserva=${reservation.id}`);
   }
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-16 sm:px-6 sm:py-24">
-      <SectionHeading eyebrow="Bilhetes" title="Reserva o teu lugar no Nexus" tone="magenta" />
+      <SectionHeading eyebrow="Bilhetes" title="Garante o teu lugar no Nexus" tone="magenta" />
       <p className="mt-4 max-w-2xl text-cream/70">
-        Esta é uma reserva, não um pagamento. Depois de submeteres, a {EVENT.orgName} confirma o pagamento
-        manualmente e o teu bilhete com QR code fica ativo.
+        Escolhe o pacote, indica os teus dados e paga por Multicaixa Express ou por referência. Assim que o
+        pagamento é confirmado, o teu bilhete com QR code fica ativo.
       </p>
 
-      <form onSubmit={handleSubmit} className="mt-10">
-        <fieldset disabled={loadingTypes}>
-          <legend className="text-sm font-bold uppercase tracking-widest text-yellow">Escolhe o teu pacote</legend>
-          <div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {ticketTypes.map((type, i) => {
-              const active = type.id === ticketTypeId;
-              return (
-                <label
-                  key={type.id}
-                  className={`${i % 2 === 0 ? 'rot-1' : '-rotate-1'} group relative flex cursor-pointer flex-col border-2 bg-ink-soft transition-all focus-within:ring-2 focus-within:ring-yellow hover:-translate-y-1 hover:rotate-0 ${
-                    active ? 'border-yellow shadow-[6px_6px_0_0_#FFD527]' : 'border-cream/15 hover:border-cream/40'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="ticketType"
-                    value={type.id}
-                    checked={active}
-                    onChange={() => setTicketTypeId(type.id)}
-                    className="sr-only"
-                  />
-                  <TicketCardBody type={type} selected={active} />
-                </label>
-              );
-            })}
-          </div>
-        </fieldset>
+      <CheckoutStepper current={step} />
 
-        <div className="mt-10 grid gap-10 lg:grid-cols-[1.1fr_0.9fr]">
-        <div>
-          <div className="grid gap-5">
-            <Field label="Nome completo" htmlFor="fullName">
-              <input
-                id="fullName"
-                required
-                minLength={3}
-                maxLength={120}
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="input"
-                placeholder="O teu nome completo"
-              />
-            </Field>
+      {returnedWithoutCheckout && step === 1 && (
+        <div role="status" className="mt-8 border-l-4 border-yellow bg-yellow/10 p-4 text-sm text-cream/85">
+          O pagamento não foi concluído. Se achas que pagaste, contacta a {EVENT.orgName} pelo {EVENT.orgPhone}
+          com o telemóvel que usaste na reserva.
+        </div>
+      )}
 
-            <Field label="Contacto (telefone ou e-mail)" htmlFor="contact">
-              <input
-                id="contact"
-                required
-                minLength={6}
-                maxLength={120}
-                value={contact}
-                onChange={(e) => setContact(e.target.value)}
-                className="input"
-                placeholder="912 345 678 ou email@exemplo.com"
-              />
-            </Field>
+      {step === 1 && (
+        <form onSubmit={goToDetails} className="mt-10">
+          <fieldset disabled={loadingTypes}>
+            <legend className="text-sm font-bold uppercase tracking-widest text-yellow">Escolhe o teu pacote</legend>
+            <div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+              {ticketTypes.map((type, i) => {
+                const active = type.id === ticketTypeId;
+                return (
+                  <label
+                    key={type.id}
+                    className={`${i % 2 === 0 ? 'rot-1' : '-rotate-1'} group relative flex cursor-pointer flex-col border-2 bg-ink-soft transition-all focus-within:ring-2 focus-within:ring-yellow hover:-translate-y-1 hover:rotate-0 ${
+                      active ? 'border-yellow shadow-[6px_6px_0_0_#FFD527]' : 'border-cream/15 hover:border-cream/40'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="ticketType"
+                      value={type.id}
+                      checked={active}
+                      onChange={() => setTicketTypeId(type.id)}
+                      className="sr-only"
+                    />
+                    <TicketCardBody type={type} selected={active} />
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
 
+          <div className="mt-10 flex flex-wrap items-end justify-between gap-6 border-t border-cream/10 pt-6">
             <Field label="Quantidade" htmlFor="quantity">
               <input
                 id="quantity"
@@ -165,57 +163,181 @@ export function Bilhetes() {
               />
             </Field>
 
-            <Field label="Observações (opcional)" htmlFor="notes">
-              <textarea
-                id="notes"
-                maxLength={500}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="input min-h-[90px]"
-                placeholder="Alguma informação extra para a organização"
-              />
-            </Field>
-          </div>
-
-          {error && (
-            <p role="alert" className="mt-4 border-l-4 border-magenta bg-magenta/10 px-4 py-3 text-sm text-cream">
-              {error}
-            </p>
-          )}
-
-          <button
-            type="submit"
-            disabled={submitting || loadingTypes}
-            className="focus-ring mt-8 cut-tag rotate-1 bg-magenta px-8 py-3 text-sm font-extrabold uppercase tracking-wide text-cream transition-transform hover:-rotate-1 hover:scale-105 disabled:opacity-50"
-          >
-            {submitting ? 'A submeter…' : 'Submeter reserva'}
-          </button>
-        </div>
-
-        <aside className="rot-1 h-fit border-2 border-cream/15 bg-ink-soft p-6">
-          <h3 className="text-sm font-bold uppercase tracking-widest text-magenta">Resumo</h3>
-          {selectedType ? (
-            <div className="mt-4 space-y-2 text-sm text-cream/80">
-              <p className="text-lg font-extrabold text-cream">{selectedType.name}</p>
-              <p>{selectedType.description}</p>
-              <p className="pt-3 text-2xl font-extrabold text-yellow">
-                {formatKz(selectedType.refPrice * quantity)}
-              </p>
-              <p className="text-xs text-cream/50">
-                {quantity} × {formatKz(selectedType.refPrice)}
+            <div className="text-right">
+              <p className="text-xs text-cream/50">Total</p>
+              <p className="text-2xl font-extrabold text-yellow">
+                {formatKz(selectedType ? selectedType.refPrice * quantity : 0)}
               </p>
             </div>
-          ) : (
-            <p className="mt-4 text-sm text-cream/50">Escolhe um tipo de bilhete para veres o resumo.</p>
-          )}
+          </div>
 
-          <p className="mt-6 text-xs text-cream/40">
-            Pagamento manual (transferência ou Multicaixa Express) confirmado pela organização após a submissão.
-          </p>
-        </aside>
+          <ErrorMessage message={error} />
+
+          <div className="mt-8 flex justify-end">
+            <PrimaryButton type="submit" disabled={loadingTypes || !ticketTypeId}>
+              Continuar
+            </PrimaryButton>
+          </div>
+        </form>
+      )}
+
+      {step === 2 && (
+        <div className="mt-10 grid gap-10 lg:grid-cols-[1.1fr_0.9fr]">
+          <form onSubmit={createReservation}>
+            <div className="grid gap-5">
+              <Field label="Nome completo" htmlFor="fullName">
+                <input
+                  id="fullName"
+                  required
+                  minLength={3}
+                  maxLength={120}
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="input"
+                  placeholder="O teu nome completo"
+                  autoFocus
+                />
+              </Field>
+
+              <Field label="Telemóvel" htmlFor="contact">
+                <input
+                  id="contact"
+                  required
+                  minLength={9}
+                  maxLength={20}
+                  inputMode="tel"
+                  autoComplete="tel"
+                  value={contact}
+                  onChange={(e) => setContact(e.target.value)}
+                  className="input"
+                  placeholder="923 456 789"
+                />
+              </Field>
+
+              <Field label="Email" htmlFor="email">
+                <input
+                  id="email"
+                  type="email"
+                  required
+                  maxLength={160}
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="input"
+                  placeholder="email@exemplo.com"
+                />
+                <p className="mt-1.5 text-xs text-cream/50">É para aqui que enviamos o bilhete com QR code.</p>
+              </Field>
+
+              <Field label="Observações (opcional)" htmlFor="notes">
+                <textarea
+                  id="notes"
+                  maxLength={500}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="input min-h-[90px]"
+                  placeholder="Alguma informação extra para a organização"
+                />
+              </Field>
+            </div>
+
+            <ErrorMessage message={error} />
+
+            <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
+              <BackButton
+                onClick={() => {
+                  setError(null);
+                  setStep(1);
+                }}
+              />
+              <PrimaryButton type="submit" disabled={submitting}>
+                {submitting ? 'A reservar…' : 'Reservar e pagar'}
+              </PrimaryButton>
+            </div>
+          </form>
+
+          <Summary type={selectedType} quantity={quantity} />
         </div>
-      </form>
+      )}
+
+      {step === 3 && reservation && (
+        <div className="mt-10 grid gap-10 lg:grid-cols-[1.1fr_0.9fr]">
+          <div>
+            <p className="text-sm text-cream/70">
+              Reserva registada em nome de{' '}
+              <span className="font-bold text-cream">{reservation.fullName}</span>. Falta só o pagamento.
+            </p>
+            <div className="mt-5">
+              <PaymentStep
+                reservation={reservation}
+                initialPaymentId={paymentId}
+                onPaymentChange={handlePaymentChange}
+                onPaid={handlePaid}
+              />
+            </div>
+          </div>
+
+          <Summary type={reservation.ticketType} quantity={reservation.quantity} contact={reservation.contact} />
+        </div>
+      )}
+
     </div>
+  );
+}
+
+function Summary({ type, quantity, contact }: { type?: TicketType; quantity: number; contact?: string }) {
+  return (
+    <aside className="rot-1 h-fit border-2 border-cream/15 bg-ink-soft p-6">
+      <h3 className="text-sm font-bold uppercase tracking-widest text-magenta">Resumo</h3>
+      {type ? (
+        <div className="mt-4 space-y-2 text-sm text-cream/80">
+          <p className="text-lg font-extrabold text-cream">{type.name}</p>
+          <p>{type.description}</p>
+          <p className="pt-3 text-2xl font-extrabold text-yellow">{formatKz(type.refPrice * quantity)}</p>
+          <p className="text-xs text-cream/50">
+            {quantity} × {formatKz(type.refPrice)}
+          </p>
+          {contact && <p className="pt-2 text-xs text-cream/50">Contacto: {contact}</p>}
+        </div>
+      ) : (
+        <p className="mt-4 text-sm text-cream/50">Escolhe um tipo de bilhete para veres o resumo.</p>
+      )}
+    </aside>
+  );
+}
+
+function PrimaryButton({
+  children,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { children: React.ReactNode }) {
+  return (
+    <button
+      {...props}
+      className="focus-ring cut-tag rotate-1 bg-magenta px-8 py-3 text-sm font-extrabold uppercase tracking-wide text-cream transition-transform hover:-rotate-1 hover:scale-105 disabled:opacity-50"
+    >
+      {children}
+    </button>
+  );
+}
+
+function BackButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="focus-ring text-sm font-bold text-cream/60 underline underline-offset-4 hover:text-cream"
+    >
+      Voltar
+    </button>
+  );
+}
+
+function ErrorMessage({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <p role="alert" className="mt-4 border-l-4 border-magenta bg-magenta/10 px-4 py-3 text-sm text-cream">
+      {message}
+    </p>
   );
 }
 
@@ -226,15 +348,6 @@ function Field({ label, htmlFor, children }: { label: string; htmlFor: string; c
         {label}
       </label>
       <div className="mt-1.5">{children}</div>
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between border-b border-cream/10 pb-2 text-sm">
-      <span className="text-cream/50">{label}</span>
-      <span className="font-semibold text-cream">{value}</span>
     </div>
   );
 }

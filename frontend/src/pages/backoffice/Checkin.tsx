@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { api } from '../../lib/api';
+import { formatEventDay, formatLuandaTime } from '../../lib/format';
 
 const QUEUE_KEY = 'kwamikon_checkin_queue';
 const SCANNER_ID = 'checkin-scanner';
@@ -11,15 +12,22 @@ type Feedback = {
   detail?: string;
 };
 
-function readQueue(): string[] {
+/** Leitura feita sem rede: guardamos a hora para contar no dia certo quando sincronizar. */
+type QueuedScan = { code: string; scannedAt: string };
+
+type Today = { day: string; isEventDay: boolean; eventDays: string[]; entries: number };
+
+function readQueue(): QueuedScan[] {
   try {
-    return JSON.parse(localStorage.getItem(QUEUE_KEY) ?? '[]');
+    const raw = JSON.parse(localStorage.getItem(QUEUE_KEY) ?? '[]') as (QueuedScan | string)[];
+    // Filas antigas guardavam só o código.
+    return raw.map((item) => (typeof item === 'string' ? { code: item, scannedAt: new Date().toISOString() } : item));
   } catch {
     return [];
   }
 }
 
-function writeQueue(queue: string[]) {
+function writeQueue(queue: QueuedScan[]) {
   localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
 }
 
@@ -31,6 +39,11 @@ export function Checkin() {
   const [queueSize, setQueueSize] = useState(() => readQueue().length);
   const [online, setOnline] = useState(navigator.onLine);
   const [manualCode, setManualCode] = useState('');
+  const [today, setToday] = useState<Today | null>(null);
+
+  function refreshToday() {
+    api.checkin.today().then(setToday).catch(() => undefined);
+  }
 
   useEffect(() => {
     function goOnline() {
@@ -43,6 +56,7 @@ export function Checkin() {
     window.addEventListener('online', goOnline);
     window.addEventListener('offline', goOffline);
     void syncQueue();
+    refreshToday();
     return () => {
       window.removeEventListener('online', goOnline);
       window.removeEventListener('offline', goOffline);
@@ -60,12 +74,12 @@ export function Checkin() {
     const queue = readQueue();
     if (queue.length === 0 || !navigator.onLine) return;
 
-    const remaining: string[] = [];
-    for (const code of queue) {
+    const remaining: QueuedScan[] = [];
+    for (const item of queue) {
       try {
-        await api.checkin.validate(code);
+        await api.checkin.validate(item.code, item.scannedAt);
       } catch {
-        remaining.push(code);
+        remaining.push(item);
       }
     }
     writeQueue(remaining);
@@ -80,10 +94,32 @@ export function Checkin() {
       const result = await api.checkin.validate(code);
       switch (result.outcome) {
         case 'ok':
-          setFeedback({ tone: 'ok', title: 'Entrada validada', detail: `${result.fullName} · ${result.ticketType} × ${result.quantity}` });
+          setFeedback({
+            tone: 'ok',
+            title: `Entrada validada · ${formatEventDay(result.eventDay)}`,
+            detail: `${result.fullName} · ${result.ticketType} × ${result.quantity}${
+              result.remainingDays.length > 0
+                ? ` · ainda pode entrar a ${result.remainingDays.map(formatEventDay).join(' e ')}`
+                : ' · último dia deste bilhete'
+            }`,
+          });
+          refreshToday();
           break;
         case 'already_used':
-          setFeedback({ tone: 'warn', title: 'Bilhete já utilizado', detail: result.fullName });
+          setFeedback({
+            tone: 'warn',
+            title: 'Bilhete já utilizado hoje',
+            detail: `${result.fullName}${
+              result.checkedInAt ? ` · entrou às ${formatLuandaTime(result.checkedInAt)}` : ''
+            }. Cada bilhete dá uma entrada por dia.`,
+          });
+          break;
+        case 'not_event_day':
+          setFeedback({
+            tone: 'error',
+            title: 'Bilhete não válido hoje',
+            detail: `Os bilhetes só dão entrada a ${result.eventDays.map(formatEventDay).join(' e ')}.`,
+          });
           break;
         case 'not_confirmed':
           setFeedback({ tone: 'warn', title: 'Bilhete ainda não confirmado', detail: `Estado atual: ${result.status}` });
@@ -94,7 +130,7 @@ export function Checkin() {
       }
     } catch {
       const queue = readQueue();
-      queue.push(code);
+      queue.push({ code, scannedAt: new Date().toISOString() });
       writeQueue(queue);
       setQueueSize(queue.length);
       setFeedback({
@@ -151,6 +187,31 @@ export function Checkin() {
       <p className="mt-2 text-sm text-cream/60">
         Aponta a câmara ao QR code do bilhete para validar a entrada.
       </p>
+
+      {today && (
+        <div
+          className={`mt-4 border-l-4 px-4 py-3 text-sm ${
+            today.isEventDay ? 'border-emerald-400 bg-emerald-400/10' : 'border-yellow bg-yellow/10'
+          }`}
+        >
+          {today.isEventDay ? (
+            <p className="text-cream">
+              <span className="font-extrabold">
+                Dia {today.eventDays.indexOf(today.day) + 1} · {formatEventDay(today.day)}
+              </span>
+              <span className="text-cream/60"> · {today.entries} entradas validadas</span>
+            </p>
+          ) : (
+            <p className="text-cream">
+              <span className="font-extrabold">Hoje não é dia de evento.</span>
+              <span className="text-cream/60">
+                {' '}
+                Os bilhetes só dão entrada a {today.eventDays.map(formatEventDay).join(' e ')}.
+              </span>
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="mt-4 flex items-center gap-2 text-xs font-bold uppercase tracking-widest">
         <span className={`h-2 w-2 rounded-full ${online ? 'bg-emerald-400' : 'bg-yellow'}`} />

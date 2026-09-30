@@ -52,6 +52,8 @@ export interface Reservation {
   id: string;
   fullName: string;
   contact: string;
+  email: string | null;
+  ticketEmailSentAt?: string | null;
   ticketTypeId: string;
   ticketType: TicketType;
   quantity: number;
@@ -61,6 +63,47 @@ export interface Reservation {
   createdAt: string;
   confirmedAt: string | null;
   checkedInAt: string | null;
+  payments?: Payment[];
+  checkIns?: CheckIn[];
+}
+
+export interface CheckIn {
+  id: string;
+  eventDay: string;
+  checkedInAt: string;
+}
+
+/** Resumo público do bilhete mostrado na página de sucesso da compra. */
+export interface PurchasedTicket {
+  id: string;
+  fullName: string;
+  ticketType: string;
+  quantity: number;
+  status: Reservation['status'];
+  paymentStatus: PaymentStatus | null;
+  amountKz: number;
+  /** Email mascarado (ex.: "ma***@gmail.com"). */
+  email: string | null;
+  ticketEmailSent: boolean;
+  /** Só existe depois de o pagamento estar confirmado. */
+  qrDataUrl: string | null;
+}
+
+export type PaymentMethod = 'GPO' | 'REF';
+export type PaymentStatus = 'pending' | 'paid' | 'expired' | 'failed' | 'cancelled';
+
+export interface Payment {
+  id: string;
+  reservationId: string;
+  method: PaymentMethod;
+  amountKz: number;
+  status: PaymentStatus;
+  customerPhone: string | null;
+  /** Página de pagamento da Vero, para onde o cliente é redireccionado. */
+  paymentUrl: string | null;
+  expiresAt: string | null;
+  paidAt: string | null;
+  createdAt: string;
 }
 
 export const api = {
@@ -68,7 +111,14 @@ export const api = {
     list: () => request<TicketType[]>('/ticket-types'),
   },
   reservations: {
-    create: (data: { fullName: string; contact: string; ticketTypeId: string; quantity: number; notes?: string }) =>
+    create: (data: {
+      fullName: string;
+      contact: string;
+      email: string;
+      ticketTypeId: string;
+      quantity: number;
+      notes?: string;
+    }) =>
       request<Reservation>('/reservations', { method: 'POST', body: JSON.stringify(data) }),
     list: (filters: { status?: string; ticketTypeId?: string; search?: string }) => {
       const params = new URLSearchParams();
@@ -84,6 +134,7 @@ export const api = {
         body: JSON.stringify({ status }),
       }),
     qrCode: (id: string) => request<{ dataUrl: string }>(`/reservations/${id}/qrcode`),
+    sendTicket: (id: string) => request<{ sentTo: string }>(`/reservations/${id}/send-ticket`, { method: 'POST' }),
     metrics: () =>
       request<{
         total: number;
@@ -91,6 +142,14 @@ export const api = {
         byType: { ticketTypeId: string; name: string; reservas: number; pessoas: number }[];
       }>('/reservations/metrics'),
     exportUrl: () => `${API_URL}/reservations/export.csv`,
+  },
+  payments: {
+    create: (data: { reservationId: string; method: PaymentMethod; phone: string }) =>
+      request<Payment>('/payments', { method: 'POST', body: JSON.stringify(data) }),
+    status: (id: string) => request<Payment>(`/payments/${id}`),
+    ticket: (reservationId: string) => request<PurchasedTicket>(`/payments/reservation/${reservationId}/ticket`),
+    syncReservation: (reservationId: string) =>
+      request<Reservation>(`/payments/reservation/${reservationId}/sync`, { method: 'POST' }),
   },
   auth: {
     login: (email: string, password: string) =>
@@ -101,13 +160,24 @@ export const api = {
     me: () => request<{ sub: string; email: string; name: string; role: string }>('/auth/me'),
   },
   checkin: {
-    validate: (code: string) =>
+    validate: (code: string, scannedAt?: string) =>
       request<
-        | { outcome: 'ok'; fullName: string; ticketType: string; quantity: number; checkedInAt: string }
-        | { outcome: 'already_used'; fullName: string; ticketType: string; checkedInAt: string | null }
+        | {
+            outcome: 'ok';
+            fullName: string;
+            ticketType: string;
+            quantity: number;
+            checkedInAt: string;
+            eventDay: string;
+            remainingDays: string[];
+          }
+        | { outcome: 'already_used'; fullName: string; ticketType: string; checkedInAt: string | null; eventDay: string }
+        | { outcome: 'not_event_day'; day: string; eventDays: string[] }
         | { outcome: 'not_confirmed'; status: string }
         | { outcome: 'not_found' }
-      >('/checkin', { method: 'POST', body: JSON.stringify({ code }) }),
+      >('/checkin', { method: 'POST', body: JSON.stringify({ code, scannedAt }) }),
+    today: () =>
+      request<{ day: string; isEventDay: boolean; eventDays: string[]; entries: number }>('/checkin/today'),
   },
 };
 

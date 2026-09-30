@@ -47,7 +47,10 @@ export class ReservationsController {
   async export(@Res() res: Response) {
     const csv = await this.service.exportCsv();
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="reservas-kwamikon.csv"');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="reservas-kwamikon.csv"',
+    );
     res.send(csv);
   }
 
@@ -64,6 +67,13 @@ export class ReservationsController {
   async qrCode(@Param('id') id: string) {
     const dataUrl = await this.service.qrCodeImage(id);
     return { dataUrl };
+  }
+
+  @Post(':id/send-ticket')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ORGANIZADOR')
+  sendTicket(@Param('id') id: string) {
+    return this.service.resendTicket(id);
   }
 
   @Patch(':id/status')

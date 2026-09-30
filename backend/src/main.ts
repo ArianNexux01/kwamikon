@@ -4,7 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: o webhook da Vero é validado com HMAC sobre o corpo cru do pedido.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   const config = app.get(ConfigService);
 
   // Em desenvolvimento o Vite pode subir em várias portas (5173, 5174, ...)

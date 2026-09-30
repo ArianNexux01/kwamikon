@@ -9,6 +9,8 @@ datasource db {
 
 /// Role: "ORGANIZADOR" | "STAFF_PORTA"
 /// ReservationStatus: "PENDENTE" | "CONFIRMADO" | "CANCELADO" | "UTILIZADO"
+/// PaymentMethod: "GPO" | "REF"
+/// PaymentStatus: "pending" | "paid" | "expired" | "failed" | "cancelled" (valores da API Vero)
 
 model BackofficeUser {
   id           String   @id @default(uuid())
@@ -31,20 +33,65 @@ model TicketType {
 }
 
 model Reservation {
-  id            String            @id @default(uuid())
-  fullName      String
-  contact       String
-  contactNorm   String
-  ticketTypeId  String
-  ticketType    TicketType        @relation(fields: [ticketTypeId], references: [id])
-  quantity      Int               @default(1)
-  notes         String?
-  status        String            @default("PENDENTE")
-  qrCode        String?           @unique
-  createdAt     DateTime          @default(now())
-  confirmedAt   DateTime?
-  checkedInAt   DateTime?
+  id                String     @id @default(uuid())
+  fullName          String
+  contact           String
+  contactNorm       String
+  /// Para onde é enviado o bilhete com QR code.
+  email             String?
+  /// Marca o envio do bilhete por email, para não o enviar duas vezes.
+  ticketEmailSentAt DateTime?
+  ticketTypeId      String
+  ticketType        TicketType @relation(fields: [ticketTypeId], references: [id])
+  quantity          Int        @default(1)
+  notes             String?
+  status            String     @default("PENDENTE")
+  qrCode            String?    @unique
+  createdAt         DateTime   @default(now())
+  confirmedAt       DateTime?
+  /// Última entrada registada (a lista completa está em CheckIn).
+  checkedInAt       DateTime?
+  payments          Payment[]
+  checkIns          CheckIn[]
 
   @@index([contactNorm])
   @@index([status])
+}
+
+/// Cobrança criada na Vero Pays. O id é o da transação devolvido pela API,
+/// guardado logo na criação para associar o webhook de confirmação.
+model Payment {
+  id              String      @id
+  reservationId   String
+  reservation     Reservation @relation(fields: [reservationId], references: [id])
+  method          String
+  amountKz        Int
+  status          String      @default("pending")
+  customerPhone   String?
+  /// Página de pagamento da Vero, para o cliente voltar a ela (ex.: rever a referência).
+  paymentUrl      String?
+  referenceEntity String?
+  referenceNumber String?
+  expiresAt       DateTime?
+  paidAt          DateTime?
+  lastSyncedAt    DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([reservationId])
+  @@index([status])
+}
+
+/// Uma entrada no recinto. O bilhete vale uma entrada por dia de evento:
+/// a restrição única impede duas entradas no mesmo dia, mesmo com leituras simultâneas.
+model CheckIn {
+  id            String      @id @default(uuid())
+  reservationId String
+  reservation   Reservation @relation(fields: [reservationId], references: [id])
+  /// Dia do evento no fuso de Luanda, formato YYYY-MM-DD.
+  eventDay      String
+  checkedInAt   DateTime    @default(now())
+
+  @@unique([reservationId, eventDay])
+  @@index([eventDay])
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, ApiError, type Reservation } from '../../lib/api';
-import { formatKz } from '../../lib/format';
+import { api, ApiError, type Payment, type Reservation } from '../../lib/api';
+import { formatEventDay, formatKz } from '../../lib/format';
 import { useAuth } from '../../context/AuthContext';
 
 const STATUS_LABELS: Record<Reservation['status'], string> = {
@@ -17,6 +17,14 @@ const STATUS_STYLES: Record<Reservation['status'], string> = {
   UTILIZADO: 'bg-magenta/20 text-magenta-soft',
 };
 
+const PAYMENT_LABELS: Record<Payment['status'], string> = {
+  pending: 'A aguardar',
+  paid: 'Pago',
+  expired: 'Expirado',
+  failed: 'Falhou',
+  cancelled: 'Cancelado',
+};
+
 export function Reservas() {
   const { user } = useAuth();
   const isOrganizador = user?.role === 'ORGANIZADOR';
@@ -26,6 +34,7 @@ export function Reservas() {
   const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [qrFor, setQrFor] = useState<Reservation | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<{ total: number; byStatus: { status: string; reservas: number; pessoas: number }[] } | null>(null);
@@ -56,6 +65,28 @@ export function Reservas() {
       load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Não foi possível atualizar a reserva.');
+    }
+  }
+
+  async function syncPayments(id: string) {
+    setError(null);
+    try {
+      await api.payments.syncReservation(id);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Não foi possível verificar o pagamento.');
+    }
+  }
+
+  async function resendTicket(id: string) {
+    setError(null);
+    setNotice(null);
+    try {
+      const { sentTo } = await api.reservations.sendTicket(id);
+      setNotice(`Bilhete reenviado para ${sentTo}.`);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Não foi possível reenviar o bilhete.');
     }
   }
 
@@ -116,9 +147,10 @@ export function Reservas() {
       </div>
 
       {error && <p className="mt-4 text-sm text-magenta-soft">{error}</p>}
+      {notice && <p className="mt-4 text-sm text-emerald-400">{notice}</p>}
 
       <div className="mt-6 overflow-x-auto">
-        <table className="w-full min-w-[720px] border-collapse text-sm">
+        <table className="w-full min-w-[840px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-cream/10 text-left text-xs uppercase tracking-widest text-cream/40">
               <th className="py-3 pr-4">Nome</th>
@@ -127,24 +159,28 @@ export function Reservas() {
               <th className="py-3 pr-4">Qtd</th>
               <th className="py-3 pr-4">Total</th>
               <th className="py-3 pr-4">Estado</th>
+              <th className="py-3 pr-4">Pagamento</th>
               <th className="py-3 pr-4">Ações</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-cream/40">A carregar…</td>
+                <td colSpan={8} className="py-8 text-center text-cream/40">A carregar…</td>
               </tr>
             )}
             {!loading && reservations.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-cream/40">Sem reservas para os filtros escolhidos.</td>
+                <td colSpan={8} className="py-8 text-center text-cream/40">Sem reservas para os filtros escolhidos.</td>
               </tr>
             )}
             {reservations.map((r) => (
               <tr key={r.id} className="border-b border-cream/5">
                 <td className="py-3 pr-4 font-semibold text-cream">{r.fullName}</td>
-                <td className="py-3 pr-4 text-cream/70">{r.contact}</td>
+                <td className="py-3 pr-4 text-cream/70">
+                  {r.contact}
+                  {r.email && <span className="block text-xs text-cream/40">{r.email}</span>}
+                </td>
                 <td className="py-3 pr-4 text-cream/70">{r.ticketType.name}</td>
                 <td className="py-3 pr-4 text-cream/70">{r.quantity}</td>
                 <td className="py-3 pr-4 text-cream/70">{formatKz(r.ticketType.refPrice * r.quantity)}</td>
@@ -152,6 +188,14 @@ export function Reservas() {
                   <span className={`rounded px-2 py-1 text-xs font-bold uppercase ${STATUS_STYLES[r.status]}`}>
                     {STATUS_LABELS[r.status]}
                   </span>
+                  {r.checkIns && r.checkIns.length > 0 && (
+                    <span className="mt-1 block text-xs text-cream/50">
+                      Entrou: {r.checkIns.map((c) => formatEventDay(c.eventDay)).join(', ')}
+                    </span>
+                  )}
+                </td>
+                <td className="py-3 pr-4 text-xs text-cream/70">
+                  <PaymentCell payment={r.payments?.[0]} />
                 </td>
                 <td className="py-3 pr-4">
                   {isOrganizador && (
@@ -165,13 +209,32 @@ export function Reservas() {
                           Confirmar
                         </button>
                       )}
-                      {(r.status === 'PENDENTE' || r.status === 'CONFIRMADO') && (
+                      {r.status === 'PENDENTE' && r.payments?.some((p) => p.status === 'pending') && (
+                        <button
+                          type="button"
+                          onClick={() => syncPayments(r.id)}
+                          className="rounded bg-yellow/20 px-2 py-1 text-xs font-bold text-yellow hover:bg-yellow/30"
+                        >
+                          Verificar pagamento
+                        </button>
+                      )}
+                      {(r.status === 'PENDENTE' || r.status === 'CONFIRMADO') && !r.checkIns?.length && (
                         <button
                           type="button"
                           onClick={() => updateStatus(r.id, 'CANCELADO')}
                           className="rounded bg-magenta/20 px-2 py-1 text-xs font-bold text-magenta-soft hover:bg-magenta/30"
                         >
                           Cancelar
+                        </button>
+                      )}
+                      {(r.status === 'CONFIRMADO' || r.status === 'UTILIZADO') && r.email && (
+                        <button
+                          type="button"
+                          onClick={() => resendTicket(r.id)}
+                          title={r.ticketEmailSentAt ? 'Bilhete já enviado; reenviar' : 'Bilhete ainda não enviado'}
+                          className="rounded bg-cream/10 px-2 py-1 text-xs font-bold text-cream/70 hover:bg-cream/20"
+                        >
+                          {r.ticketEmailSentAt ? 'Reenviar bilhete' : 'Enviar bilhete'}
                         </button>
                       )}
                       {(r.status === 'CONFIRMADO' || r.status === 'UTILIZADO') && (
@@ -220,6 +283,19 @@ export function Reservas() {
         </div>
       )}
     </div>
+  );
+}
+
+function PaymentCell({ payment }: { payment?: Payment }) {
+  if (!payment) return <span className="text-cream/30">Sem pagamento</span>;
+  const method = payment.method === 'GPO' ? 'Multicaixa Express' : 'Referência';
+  return (
+    <span title={payment.customerPhone ? `Telemóvel: ${payment.customerPhone}` : undefined}>
+      <span className={payment.status === 'paid' ? 'font-bold text-emerald-400' : undefined}>
+        {PAYMENT_LABELS[payment.status]}
+      </span>
+      <span className="block text-cream/40">{method}</span>
+    </span>
   );
 }
 

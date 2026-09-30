@@ -40,8 +40,6 @@ export const EVENT = {
   ],
 } as const;
 
-export const PAYMENT_INSTRUCTIONS_PLACEHOLDER = `Os dados bancários e a referência Multicaixa Express para pagamento vão ser confirmados pela organização. Depois de submeteres a reserva, entra em contacto com a ${EVENT.orgName} pelo número ${EVENT.orgPhone} para concluir o pagamento e confirmar o teu lugar.`;
-
 export const FAQ_ITEMS = [
   {
     question: 'O que é o Kwamikon Nexus?',
@@ -55,12 +53,12 @@ export const FAQ_ITEMS = [
   {
     question: 'Como funciona a reserva de bilhete?',
     answer:
-      'Escolhes o tipo de bilhete, preenches o formulário com os teus dados e submetes o pedido. A reserva fica com o estado "pendente" até a organização confirmar o pagamento manual (transferência ou Multicaixa Express). Depois de confirmada, recebes um bilhete com QR code.',
+      'Na página de bilhetes escolhes o pacote, preenches os teus dados e pagas logo a seguir. Assim que o pagamento é confirmado, o bilhete com QR code fica ativo e é enviado para o teu email.',
   },
   {
     question: 'Posso pagar o bilhete online, no site?',
     answer:
-      'Ainda não. Nesta fase o pagamento é feito fora do site (transferência bancária ou Multicaixa Express) e a organização confirma manualmente cada reserva.',
+      'Sim. Podes pagar por Multicaixa Express, confirmando o pedido na app com o teu PIN, ou por referência, no ATM ou no Internet Banking. A confirmação é automática.',
   },
   {
     question: 'O que é a moldura "Eu vou"?',
@@ -71,5 +69,9 @@ export const FAQ_ITEMS = [
     question: 'Posso entrar com o bilhete no telemóvel?',
     answer:
       'Sim. Depois da confirmação, o QR code do teu bilhete pode ser apresentado diretamente do telemóvel à entrada — não precisas de o imprimir.',
+  },
+  {
+    question: 'O bilhete vale para os dois dias? Posso sair e voltar a entrar?',
+    answer: `O bilhete é válido nos dois dias do evento, ${EVENT.dateLabel}, com uma entrada por dia. Depois de validado à porta, o QR code não volta a dar entrada nesse dia, por isso se saíres só voltas a entrar no dia seguinte. Fora destes dias o bilhete não é aceite.`,
   },
 ] as const;

@@ -7,6 +7,7 @@ import { Home } from './pages/Home';
 import { Sobre } from './pages/Sobre';
 import { Programacao } from './pages/Programacao';
 import { Bilhetes } from './pages/Bilhetes';
+import { BilheteSucesso } from './pages/BilheteSucesso';
 import { EuVou } from './pages/EuVou';
 import { Faq } from './pages/Faq';
 import { Contacto } from './pages/Contacto';
@@ -25,6 +26,7 @@ export default function App() {
             <Route path="/sobre" element={<Sobre />} />
             <Route path="/programacao" element={<Programacao />} />
             <Route path="/bilhetes" element={<Bilhetes />} />
+            <Route path="/bilhetes/sucesso" element={<BilheteSucesso />} />
             <Route path="/eu-vou" element={<EuVou />} />
             <Route path="/faq" element={<Faq />} />
             <Route path="/contacto" element={<Contacto />} />

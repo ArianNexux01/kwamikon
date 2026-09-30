@@ -7,7 +7,6 @@ import { SectionHeading } from '../components/SectionHeading';
 import { CountdownTimer } from '../components/CountdownTimer';
 import { MomentsGallery } from '../components/MomentsGallery';
 import { TicketCardBody } from '../components/TicketCardBody';
-import { QuickReserveModal } from '../components/QuickReserveModal';
 import { EVENT } from '../lib/site-content';
 import { api, type TicketType } from '../lib/api';
 
@@ -29,7 +28,6 @@ const STATS = [
 
 export function Home() {
   const [ticketTypes, setTicketTypes] = useState<TicketType[]>([]);
-  const [reserving, setReserving] = useState<TicketType | null>(null);
   const eventStart = useMemo(() => new Date(EVENT.startsAtIso), []);
 
   useEffect(() => {
@@ -151,22 +149,21 @@ export function Home() {
         <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
           <SectionHeading eyebrow="Bilhetes" title="Escolhe o teu passe para o Nexus" tone="magenta" />
           <p className="mt-4 max-w-xl text-sm text-cream/60">
-            Clica num pacote para reservares já — sem sair desta página.
+            Clica num pacote para reservares e pagares já o teu passe.
           </p>
 
           <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {ticketTypes.map((type, i) => (
-              <button
+              <NavLink
                 key={type.id}
-                type="button"
-                onClick={() => setReserving(type)}
+                to={`/bilhetes?pacote=${type.id}`}
                 className={`${i % 2 === 0 ? 'rot-1' : '-rotate-1'} group focus-ring flex flex-col border-2 border-cream/15 bg-ink text-left transition-all hover:-translate-y-1 hover:rotate-0 hover:border-yellow`}
               >
                 <TicketCardBody type={type} />
                 <span className="cut-tag mx-4 mb-4 mt-1 bg-cream/10 py-2 text-center text-xs font-extrabold uppercase tracking-widest text-cream group-hover:bg-yellow">
                   Reservar
                 </span>
-              </button>
+              </NavLink>
             ))}
           </div>
 
@@ -180,8 +177,6 @@ export function Home() {
           </div>
         </div>
       </section>
-
-      <QuickReserveModal type={reserving} onClose={() => setReserving(null)} />
 
       {/* EU VOU PREVIEW */}
       <section className="relative mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">

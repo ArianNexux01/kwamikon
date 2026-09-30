@@ -7,6 +7,8 @@ services:
     environment:
       DATABASE_URL: file:/app/data/dev.db
       CORS_ORIGIN: http://localhost:8080
+      PUBLIC_SITE_URL: http://localhost:8080
+      PUBLIC_API_URL: http://localhost:3333
     ports:
       - "3333:3333"
     volumes:
