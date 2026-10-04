@@ -10,6 +10,12 @@ const STATUS_LABELS: Record<Reservation['status'], string> = {
   UTILIZADO: 'Utilizado',
 };
 
+/** Cancelamentos feitos pelo sistema; os do organizador não têm motivo. */
+const CANCEL_REASONS: Record<NonNullable<Reservation['cancelReason']>, string> = {
+  PAGAMENTO_EXPIRADO: 'Pagamento não feito a tempo',
+  PAGAMENTO_FALHOU: 'Pagamento falhou',
+};
+
 const STATUS_STYLES: Record<Reservation['status'], string> = {
   PENDENTE: 'bg-yellow/20 text-yellow',
   CONFIRMADO: 'bg-emerald-500/20 text-emerald-400',
@@ -183,11 +189,14 @@ export function Reservas() {
                 </td>
                 <td className="py-3 pr-4 text-cream/70">{r.ticketType.name}</td>
                 <td className="py-3 pr-4 text-cream/70">{r.quantity}</td>
-                <td className="py-3 pr-4 text-cream/70">{formatKz(r.ticketType.refPrice * r.quantity)}</td>
+                <td className="py-3 pr-4 text-cream/70">{formatKz(r.payments?.[0]?.amountKz ?? r.ticketType.refPrice * r.quantity)}</td>
                 <td className="py-3 pr-4">
                   <span className={`rounded px-2 py-1 text-xs font-bold uppercase ${STATUS_STYLES[r.status]}`}>
                     {STATUS_LABELS[r.status]}
                   </span>
+                  {r.status === 'CANCELADO' && r.cancelReason && (
+                    <span className="mt-1 block text-xs text-cream/50">{CANCEL_REASONS[r.cancelReason]}</span>
+                  )}
                   {r.checkIns && r.checkIns.length > 0 && (
                     <span className="mt-1 block text-xs text-cream/50">
                       Entrou: {r.checkIns.map((c) => formatEventDay(c.eventDay)).join(', ')}

@@ -2,8 +2,12 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import logoNexusWhite from '../assets/brand/logo-nexus-white.png';
 
+const linkClass = ({ isActive }: { isActive: boolean }) =>
+  `rounded px-3 py-1.5 ${isActive ? 'bg-magenta text-cream' : 'text-cream/70 hover:text-cream'}`;
+
 export function BackofficeLayout() {
   const { user, logout } = useAuth();
+  const isOrganizador = user?.role === 'ORGANIZADOR';
 
   return (
     <div className="min-h-screen bg-ink text-cream">
@@ -32,6 +36,19 @@ export function BackofficeLayout() {
             >
               Check-in
             </NavLink>
+            {isOrganizador && (
+              <>
+                <NavLink to="/backoffice/precos" className={linkClass}>
+                  Preços
+                </NavLink>
+                <NavLink to="/backoffice/galeria" className={linkClass}>
+                  Galeria
+                </NavLink>
+                <NavLink to="/backoffice/faq" className={linkClass}>
+                  FAQ
+                </NavLink>
+              </>
+            )}
           </nav>
 
           <div className="flex items-center gap-3 text-sm text-cream/60">

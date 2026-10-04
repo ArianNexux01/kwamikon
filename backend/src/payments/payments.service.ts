@@ -1,15 +1,18 @@
 import {
   BadRequestException,
   ConflictException,
+  GoneException,
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import * as QRCode from 'qrcode';
-import { Payment } from '@prisma/client';
+import { Payment, Reservation } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReservationsService } from '../reservations/reservations.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
@@ -21,6 +24,26 @@ import { VeroClient, VeroTransaction } from './vero.client';
  */
 const SYNC_THROTTLE_MS = 4_000;
 
+/**
+ * Tempo que o cliente tem para concluir o pagamento, contado desde a criação do
+ * pedido. Passado este prazo sem confirmação, o pedido é cancelado.
+ * O frontend mostra o mesmo valor (PAYMENT_WINDOW_MINUTES em PaymentStep).
+ */
+const PAYMENT_WINDOW_MS = 5 * 60_000;
+
+/** Frequência da verificação dos pedidos fora de prazo. */
+const SWEEP_INTERVAL_MS = 30_000;
+
+/** Estados da Vero em que a cobrança já não pode ser paga. */
+const FAILED_STATUSES: ReadonlySet<string> = new Set([
+  'failed',
+  'expired',
+  'cancelled',
+]);
+
+const CANCELLED_MESSAGE =
+  'Este pedido foi cancelado porque o pagamento não foi concluído. Faz um novo pedido.';
+
 interface WebhookPayload {
   event?: string;
   transaction_id?: string;
@@ -29,8 +52,10 @@ interface WebhookPayload {
 }
 
 @Injectable()
-export class PaymentsService {
+export class PaymentsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PaymentsService.name);
+  private sweepTimer?: NodeJS.Timeout;
+  private sweeping = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -39,20 +64,52 @@ export class PaymentsService {
     private readonly config: ConfigService,
   ) {}
 
+  onModuleInit() {
+    this.sweepTimer = setInterval(
+      () => void this.cancelOverdue(),
+      SWEEP_INTERVAL_MS,
+    );
+  }
+
+  onModuleDestroy() {
+    clearInterval(this.sweepTimer);
+  }
+
+  /** Cancela os pedidos que continuam pendentes depois de PAYMENT_WINDOW_MS. */
+  async cancelOverdue() {
+    if (this.sweeping) return;
+    this.sweeping = true;
+    try {
+      const overdue = await this.prisma.reservation.findMany({
+        where: {
+          status: 'PENDENTE',
+          createdAt: { lt: new Date(Date.now() - PAYMENT_WINDOW_MS) },
+        },
+        select: { id: true },
+      });
+      for (const { id } of overdue) {
+        await this.expire(id);
+      }
+    } catch (err) {
+      this.logger.error(
+        `Falha ao cancelar pedidos fora de prazo: ${(err as Error).message}`,
+      );
+    } finally {
+      this.sweeping = false;
+    }
+  }
+
   /**
    * Cria a cobrança na Vero e devolve o paymentUrl, a página de pagamento alojada
    * para onde o frontend redirecciona o cliente.
    */
   async create(dto: CreatePaymentDto) {
     const reservation = await this.reservations.findOne(dto.reservationId);
-
-    if (reservation.status !== 'PENDENTE') {
-      throw new BadRequestException(
-        'Esta reserva já não está pendente de pagamento.',
-      );
-    }
+    await this.assertPayable(reservation);
 
     const phone = this.normalizePhone(dto.phone);
+    // Preço actual: se o organizador o alterou, as cobranças antigas deixam de servir.
+    const amount = reservation.ticketType.refPrice * reservation.quantity;
     const open = await this.prisma.payment.findMany({
       where: {
         reservationId: reservation.id,
@@ -65,8 +122,10 @@ export class PaymentsService {
       throw new ConflictException('Esta reserva já foi paga.');
     }
 
-    // Uma cobrança ainda pendente para o mesmo telemóvel é reaproveitada: o cliente
-    // volta à mesma página de pagamento em vez de ficar com duas cobranças abertas.
+    // Uma cobrança ainda pendente para o mesmo telemóvel, método e valor é reaproveitada: o
+    // cliente volta à mesma página de pagamento em vez de ficar com duas cobranças
+    // abertas. Trocar de método exige uma transação nova, porque a Vero já não o
+    // deixa mudar a meio.
     for (const candidate of open) {
       const current = await this.refresh(candidate);
       if (current.status === 'paid') {
@@ -75,6 +134,8 @@ export class PaymentsService {
       if (
         current.status === 'pending' &&
         current.paymentUrl &&
+        current.method === dto.method &&
+        current.amountKz === amount &&
         current.customerPhone === phone &&
         (!current.expiresAt || current.expiresAt.getTime() > Date.now())
       ) {
@@ -82,7 +143,13 @@ export class PaymentsService {
       }
     }
 
-    const amount = reservation.ticketType.refPrice * reservation.quantity;
+    // A consulta acima pode ter cancelado o pedido (cobrança falhada ou expirada).
+    await this.assertPayable(
+      await this.prisma.reservation.findUniqueOrThrow({
+        where: { id: reservation.id },
+      }),
+    );
+
     // A Vero devolve o cliente ao nosso endpoint de acknowledge, que confirma o estado
     // real antes de o mandar para a página de sucesso (ou de volta ao checkout).
     const returnUrl = `${this.apiUrl()}/api/payments/return/${reservation.id}`;
@@ -236,9 +303,13 @@ export class PaymentsService {
   /** Backoffice: força a verificação de todas as cobranças pendentes de uma reserva. */
   async syncReservation(reservationId: string) {
     await this.reservations.findOne(reservationId);
-    // Inclui as expiradas: uma referência expirada ainda pode passar a paga mais tarde.
+    // Inclui as expiradas e as que cancelámos ao cancelar o pedido: ainda podem
+    // passar a pagas mais tarde.
     const open = await this.prisma.payment.findMany({
-      where: { reservationId, status: { in: ['pending', 'expired'] } },
+      where: {
+        reservationId,
+        status: { in: ['pending', 'expired', 'cancelled'] },
+      },
     });
     for (const payment of open) {
       await this.apply(payment, await this.vero.getTransaction(payment.id));
@@ -307,12 +378,17 @@ export class PaymentsService {
    */
   private async apply(payment: Payment, tx: VeroTransaction): Promise<Payment> {
     const becamePaid = tx.status === 'paid' && payment.status !== 'paid';
+    // Uma cobrança que cancelámos ao cancelar o pedido não volta a ficar pendente;
+    // só sai desse estado se a Vero a der como paga.
+    const status =
+      payment.status === 'cancelled' && tx.status === 'pending'
+        ? 'cancelled'
+        : tx.status;
 
     const updated = await this.prisma.payment.update({
       where: { id: payment.id },
       data: {
-        status: tx.status,
-        // O cliente pode ter escolhido outro método na página de pagamento.
+        status,
         method: tx.method ?? payment.method,
         paymentUrl: tx.paymentUrl ?? payment.paymentUrl,
         referenceEntity: tx.referenceEntity ?? payment.referenceEntity,
@@ -325,9 +401,89 @@ export class PaymentsService {
 
     if (tx.status === 'paid') {
       await this.confirmReservation(updated, tx);
+    } else if (FAILED_STATUSES.has(status)) {
+      await this.cancelAfterFailure(updated);
     }
 
     return updated;
+  }
+
+  /**
+   * Pagamento recusado, expirado ou cancelado: o pedido é cancelado, a não ser que o
+   * cliente tenha outra cobrança ainda em curso (ex.: trocou de método a meio).
+   */
+  private async cancelAfterFailure(payment: Payment) {
+    const other = await this.prisma.payment.count({
+      where: {
+        reservationId: payment.reservationId,
+        id: { not: payment.id },
+        status: { in: ['pending', 'paid'] },
+      },
+    });
+    if (other > 0) return;
+
+    const cancelled = await this.reservations.cancelUnpaid(
+      payment.reservationId,
+      'PAGAMENTO_FALHOU',
+    );
+    if (cancelled) {
+      this.logger.log(
+        `Reserva ${payment.reservationId} cancelada: pagamento ${payment.id} ${payment.status}.`,
+      );
+    }
+  }
+
+  /**
+   * Cancela um pedido fora de prazo. Antes consulta a Vero, para não cancelar um
+   * pagamento já feito cuja confirmação ainda não chegou. As cobranças pendentes
+   * ficam canceladas do nosso lado; se alguma for paga mais tarde, o webhook
+   * volta a confirmar o pedido (ver confirmReservation).
+   */
+  private async expire(reservationId: string) {
+    const pending = await this.prisma.payment.findMany({
+      where: { reservationId, status: 'pending' },
+    });
+    for (const payment of pending) {
+      await this.refresh(payment);
+    }
+
+    const cancelled = await this.reservations.cancelUnpaid(
+      reservationId,
+      'PAGAMENTO_EXPIRADO',
+    );
+    if (!cancelled) return;
+
+    await this.prisma.payment.updateMany({
+      where: { reservationId, status: 'pending' },
+      data: { status: 'cancelled' },
+    });
+    this.logger.log(
+      `Reserva ${reservationId} cancelada: pagamento não confirmado em ${PAYMENT_WINDOW_MS / 60_000} minutos.`,
+    );
+  }
+
+  /** Só um pedido pendente e dentro do prazo pode receber uma cobrança nova. */
+  private async assertPayable(reservation: Reservation) {
+    let { status } = reservation;
+    if (
+      status === 'PENDENTE' &&
+      Date.now() - reservation.createdAt.getTime() > PAYMENT_WINDOW_MS
+    ) {
+      await this.expire(reservation.id);
+      ({ status } = await this.prisma.reservation.findUniqueOrThrow({
+        where: { id: reservation.id },
+      }));
+    }
+
+    if (status === 'CANCELADO') {
+      // 410: o frontend reconhece-o e recomeça o checkout com um pedido novo.
+      throw new GoneException(CANCELLED_MESSAGE);
+    }
+    if (status !== 'PENDENTE') {
+      throw new BadRequestException(
+        'Esta reserva já não está pendente de pagamento.',
+      );
+    }
   }
 
   private async confirmReservation(payment: Payment, tx: VeroTransaction) {
@@ -343,6 +499,13 @@ export class PaymentsService {
       await this.reservations.updateStatus(reservation.id, 'CONFIRMADO');
       this.logger.log(
         `Reserva ${reservation.id} confirmada pelo pagamento ${payment.id}.`,
+      );
+    } else if (reservation.status === 'CANCELADO' && reservation.cancelReason) {
+      // Cancelado pelo sistema por falta de pagamento, mas o cliente acabou por pagar
+      // (ex.: referência paga no ATM depois do prazo): o bilhete é emitido na mesma.
+      await this.reservations.updateStatus(reservation.id, 'CONFIRMADO');
+      this.logger.warn(
+        `Reserva ${reservation.id} cancelada automaticamente (${reservation.cancelReason}) e confirmada pelo pagamento tardio ${payment.id}.`,
       );
     } else if (reservation.status === 'CANCELADO') {
       this.logger.warn(

@@ -15,6 +15,9 @@ import { NotFound } from './pages/NotFound';
 import { BackofficeLogin } from './pages/backoffice/Login';
 import { Reservas } from './pages/backoffice/Reservas';
 import { Checkin } from './pages/backoffice/Checkin';
+import { Precos } from './pages/backoffice/Precos';
+import { Galeria } from './pages/backoffice/Galeria';
+import { FaqAdmin } from './pages/backoffice/FaqAdmin';
 
 export default function App() {
   return (
@@ -38,6 +41,11 @@ export default function App() {
             <Route element={<BackofficeLayout />}>
               <Route path="/backoffice" element={<Reservas />} />
               <Route path="/backoffice/checkin" element={<Checkin />} />
+              <Route element={<ProtectedRoute roles={['ORGANIZADOR']} />}>
+                <Route path="/backoffice/precos" element={<Precos />} />
+                <Route path="/backoffice/galeria" element={<Galeria />} />
+                <Route path="/backoffice/faq" element={<FaqAdmin />} />
+              </Route>
             </Route>
           </Route>
 

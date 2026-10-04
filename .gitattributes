@@ -1,0 +1,2 @@
+# Scripts de shell correm em Linux (VPS e containers): manter sempre LF.
+*.sh text eol=lf

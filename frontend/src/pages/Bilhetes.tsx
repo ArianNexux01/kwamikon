@@ -25,6 +25,7 @@ export function Bilhetes() {
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cancelledNotice, setCancelledNotice] = useState<string | null>(null);
   const [reservation, setReservation] = useState<Reservation | null>(stored?.reservation ?? null);
   const [paymentId, setPaymentId] = useState(stored?.paymentId);
   // Voltou da página de pagamento da Vero mas esta sessão do browser já não tem a reserva.
@@ -98,6 +99,15 @@ export function Bilhetes() {
     saveCheckout({ reservation, paymentId: payment?.id });
   }
 
+  /** O pedido foi cancelado no backend: recomeça o checkout com o mesmo pacote. */
+  function handleCancelled(message: string) {
+    saveCheckout(null);
+    setReservation(null);
+    setPaymentId(undefined);
+    setCancelledNotice(message);
+    setStep(1);
+  }
+
   function handlePaid() {
     if (!reservation) return;
     navigate(`/bilhetes/sucesso?reserva=${reservation.id}`);
@@ -113,9 +123,15 @@ export function Bilhetes() {
 
       <CheckoutStepper current={step} />
 
-      {returnedWithoutCheckout && step === 1 && (
+      {cancelledNotice && step === 1 && (
+        <div role="alert" className="mt-8 border-l-4 border-magenta bg-magenta/10 p-4 text-sm text-cream">
+          {cancelledNotice}
+        </div>
+      )}
+
+      {returnedWithoutCheckout && !cancelledNotice && step === 1 && (
         <div role="status" className="mt-8 border-l-4 border-yellow bg-yellow/10 p-4 text-sm text-cream/85">
-          O pagamento não foi concluído. Se achas que pagaste, contacta a {EVENT.orgName} pelo {EVENT.orgPhone}
+          O pagamento não foi concluído e o pedido foi cancelado. Se achas que pagaste, contacta a {EVENT.orgName} pelo {EVENT.orgPhone}
           com o telemóvel que usaste na reserva.
         </div>
       )}
@@ -273,6 +289,7 @@ export function Bilhetes() {
                 initialPaymentId={paymentId}
                 onPaymentChange={handlePaymentChange}
                 onPaid={handlePaid}
+                onCancelled={handleCancelled}
               />
             </div>
           </div>

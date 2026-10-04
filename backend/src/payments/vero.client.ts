@@ -15,23 +15,33 @@ export type VeroStatus =
 export interface VeroTransaction {
   id: string;
   status: VeroStatus;
-  /** Método final: na página de pagamento o cliente pode escolher outro. */
+  /** Escolhido por nós na criação; o cliente já não o pode trocar a meio. */
   method: VeroMethod;
   amountKz: number;
   description?: string;
+  customerName?: string;
   customerPhone?: string;
+  provider?: string;
   /** Página de pagamento alojada pela Vero, para onde o cliente é redireccionado. */
   paymentUrl?: string;
-  /** A API não devolve a entidade/referência: só aparecem na página de pagamento. */
+  /** Checkout do gateway: nunca mandar o cliente para aqui, só para o paymentUrl. */
+  checkoutUrl?: string | null;
+  /**
+   * "emis-gpo" ou "emis-reference" quando o pagamento já foi iniciado; null quando o
+   * cliente tem de escolher o método no checkout do gateway (via paymentUrl).
+   */
+  wipayProcessor?: string | null;
+  /** Em REF pode vir null nos primeiros segundos, enquanto a referência é gerada. */
   referenceEntity?: string | null;
   referenceNumber?: string | null;
   expiresAt?: string | null;
   paidAt?: string | null;
+  metadata?: Record<string, string> | null;
   createdAt: string;
 }
 
 export interface CreateVeroTransaction {
-  /** Método sugerido; o final vem no webhook e no GET. */
+  /** GPO envia logo o pedido para customer.phone; REF gera entidade e referência. */
   method: VeroMethod;
   /** Kwanzas, inteiro, mínimo 100. */
   amount: number;
@@ -68,10 +78,15 @@ export class VeroClient {
     );
   }
 
+  /**
+   * Numa transação pendente, cada consulta confirma o estado directamente no gateway.
+   * O timeout fica abaixo dos 10 s que a Vero espera pela resposta ao webhook.
+   */
   getTransaction(id: string) {
     return this.request<VeroTransaction>(
       `/api/transactions/${encodeURIComponent(id)}`,
       { method: 'GET' },
+      8_000,
     );
   }
 
@@ -119,6 +134,12 @@ export class VeroClient {
       if (res.status === 400) {
         throw new BadRequestException(
           data.message ?? 'Dados de pagamento inválidos.',
+        );
+      }
+      if (data.error === 'WIPAY_NOT_CONFIGURED') {
+        throw new HttpException(
+          'Os pagamentos estão temporariamente indisponíveis. Tenta mais tarde.',
+          503,
         );
       }
       if (res.status === 429 || res.status === 503 || res.status === 504) {

@@ -15,6 +15,9 @@ import { CreateReservationDto } from './dto/create-reservation.dto';
 import { ListReservationsDto } from './dto/list-reservations.dto';
 import { ReservationStatusInput } from './dto/update-status.dto';
 
+/** Motivo gravado quando é o sistema, e não o organizador, a cancelar o pedido. */
+export type AutoCancelReason = 'PAGAMENTO_EXPIRADO' | 'PAGAMENTO_FALHOU';
+
 @Injectable()
 export class ReservationsService {
   private readonly eventDays: string[];
@@ -109,11 +112,14 @@ export class ReservationsService {
       );
     }
 
+    // Uma alteração feita à mão (ou a confirmação de um pagamento tardio) apaga o
+    // motivo do cancelamento automático.
     const data: {
       status: ReservationStatusInput;
+      cancelReason: null;
       qrCode?: string;
       confirmedAt?: Date;
-    } = { status };
+    } = { status, cancelReason: null };
 
     if (status === 'CONFIRMADO' && !reservation.qrCode) {
       data.qrCode = randomUUID();
@@ -132,6 +138,19 @@ export class ReservationsService {
     }
 
     return updated;
+  }
+
+  /**
+   * Cancela o pedido só se ainda estiver pendente. A condição vai no próprio UPDATE
+   * para não cancelar um pedido que um pagamento confirmou entretanto.
+   * Devolve true se o pedido foi cancelado por esta chamada.
+   */
+  async cancelUnpaid(id: string, reason: AutoCancelReason) {
+    const { count } = await this.prisma.reservation.updateMany({
+      where: { id, status: 'PENDENTE' },
+      data: { status: 'CANCELADO', cancelReason: reason },
+    });
+    return count > 0;
   }
 
   resendTicket(id: string) {

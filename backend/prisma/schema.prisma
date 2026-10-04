@@ -46,6 +46,9 @@ model Reservation {
   quantity          Int        @default(1)
   notes             String?
   status            String     @default("PENDENTE")
+  /// Preenchido quando o sistema cancela o pedido: "PAGAMENTO_EXPIRADO" | "PAGAMENTO_FALHOU".
+  /// Um pedido cancelado assim volta a ser confirmado se o pagamento chegar mais tarde.
+  cancelReason      String?
   qrCode            String?    @unique
   createdAt         DateTime   @default(now())
   confirmedAt       DateTime?
@@ -94,4 +97,29 @@ model CheckIn {
 
   @@unique([reservationId, eventDay])
   @@index([eventDay])
+}
+
+/// Fotografia da galeria da página inicial, carregada no backoffice pelo organizador.
+/// O ficheiro fica em UPLOAD_DIR com o nome `fileName`; a base de dados só guarda os metadados.
+model GalleryPhoto {
+  id        String   @id @default(uuid())
+  fileName  String   @unique
+  mimeType  String
+  caption   String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([sortOrder])
+}
+
+/// Pergunta frequente da página /faq, editada no backoffice pelo organizador.
+model FaqItem {
+  id        String   @id @default(uuid())
+  question  String
+  answer    String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sortOrder])
 }

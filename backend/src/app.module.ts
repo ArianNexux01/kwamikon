@@ -6,6 +6,8 @@ import { TicketTypesModule } from './ticket-types/ticket-types.module';
 import { ReservationsModule } from './reservations/reservations.module';
 import { CheckinModule } from './checkin/checkin.module';
 import { PaymentsModule } from './payments/payments.module';
+import { GalleryModule } from './gallery/gallery.module';
+import { FaqModule } from './faq/faq.module';
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { PaymentsModule } from './payments/payments.module';
     ReservationsModule,
     CheckinModule,
     PaymentsModule,
+    GalleryModule,
+    FaqModule,
   ],
 })
 export class AppModule {}

@@ -8,7 +8,12 @@ interface PaymentStepProps {
   initialPaymentId?: string;
   onPaymentChange?: (payment: Payment | null) => void;
   onPaid: (payment: Payment) => void;
+  /** O pedido foi cancelado (pagamento falhou ou não foi feito a tempo): é preciso um pedido novo. */
+  onCancelled: (message: string) => void;
 }
+
+/** Igual a PAYMENT_WINDOW_MS no backend: passado este tempo sem pagamento, o pedido é cancelado. */
+export const PAYMENT_WINDOW_MINUTES = 5;
 
 /**
  * Verificação do estado ao voltar da página de pagamento: rápida nos primeiros minutos
@@ -19,13 +24,14 @@ const FAST_POLL_MS = 4_000;
 const SLOW_POLL_MS = 20_000;
 const FAST_POLL_WINDOW_MS = 2 * 60_000;
 
+/** Quando a cobrança acaba num destes estados o backend cancela o pedido. */
 const FINAL_MESSAGES: Partial<Record<Payment['status'], string>> = {
-  failed: 'O pagamento foi recusado. Podes tentar novamente.',
-  expired: 'O prazo para pagar terminou. Podes gerar um novo pagamento.',
-  cancelled: 'O pagamento foi cancelado. Podes tentar novamente.',
+  failed: 'O pagamento foi recusado e o pedido foi cancelado. Faz um novo pedido para tentares outra vez.',
+  expired: 'O prazo para pagar terminou e o pedido foi cancelado. Faz um novo pedido para tentares outra vez.',
+  cancelled: 'O pagamento não foi concluído a tempo e o pedido foi cancelado. Faz um novo pedido para tentares outra vez.',
 };
 
-export function PaymentStep({ reservation, initialPaymentId, onPaymentChange, onPaid }: PaymentStepProps) {
+export function PaymentStep({ reservation, initialPaymentId, onPaymentChange, onPaid, onCancelled }: PaymentStepProps) {
   const [method, setMethod] = useState<PaymentMethod>('GPO');
   const [phone, setPhone] = useState(reservation.contact.includes('@') ? '' : reservation.contact);
   const [payment, setPayment] = useState<Payment | null>(null);
@@ -36,17 +42,16 @@ export function PaymentStep({ reservation, initialPaymentId, onPaymentChange, on
   const total = reservation.ticketType.refPrice * reservation.quantity;
 
   // As callbacks vêm do pai e mudam a cada render; só queremos reagir a mudanças da cobrança.
-  const callbacks = useRef({ onPaymentChange, onPaid });
+  const callbacks = useRef({ onPaymentChange, onPaid, onCancelled });
   useEffect(() => {
-    callbacks.current = { onPaymentChange, onPaid };
+    callbacks.current = { onPaymentChange, onPaid, onCancelled };
   });
 
   function showStatus(updated: Payment) {
     const message = FINAL_MESSAGES[updated.status];
     if (message) {
-      setError(message);
       setPayment(null);
-      callbacks.current.onPaymentChange?.(null);
+      callbacks.current.onCancelled(message);
     } else {
       setPayment(updated);
     }
@@ -112,8 +117,13 @@ export function PaymentStep({ reservation, initialPaymentId, onPaymentChange, on
       callbacks.current.onPaymentChange?.(created);
       window.location.assign(created.paymentUrl);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Não foi possível iniciar o pagamento. Tenta novamente.');
       setSubmitting(false);
+      // 410: o pedido já foi cancelado (fora de prazo ou pagamento falhado).
+      if (err instanceof ApiError && err.status === 410) {
+        callbacks.current.onCancelled(err.message);
+        return;
+      }
+      setError(err instanceof ApiError ? err.message : 'Não foi possível iniciar o pagamento. Tenta novamente.');
     }
   }
 
@@ -137,8 +147,8 @@ export function PaymentStep({ reservation, initialPaymentId, onPaymentChange, on
         </p>
         <p className="mt-2 text-cream/70">
           Se escolheste referência, paga-a no ATM, no Multicaixa Express ou no Internet Banking com a entidade e a
-          referência que viste na página de pagamento. A reserva fica ativa quando o pagamento for confirmado, mesmo
-          que demore algumas horas, e podes fechar esta página.
+          referência que viste na página de pagamento. O pagamento tem de ser confirmado até {PAYMENT_WINDOW_MINUTES}{' '}
+          minutos depois do pedido; se não for, o pedido é cancelado e tens de fazer um novo.
         </p>
         {payment.paymentUrl && (
           <a
@@ -156,7 +166,9 @@ export function PaymentStep({ reservation, initialPaymentId, onPaymentChange, on
     <form onSubmit={handleSubmit} className="border-2 border-cream/15 bg-ink p-4">
       <p className="text-sm font-extrabold text-cream">Pagar {formatKz(total)}</p>
       <p className="mt-1 text-xs text-cream/50">
-        Vais concluir o pagamento na página segura da Vero Pays e voltar aqui no fim.
+        Vais concluir o pagamento na página segura da Vero Pays e voltar aqui no fim. Tens {PAYMENT_WINDOW_MINUTES}{' '}
+        minutos desde o pedido para pagar; se o pagamento não for confirmado nesse tempo, ou se falhar, o pedido é
+        cancelado.
       </p>
 
       <div className="mt-4 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Método de pagamento">

@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+import { api, type GalleryPhoto } from '../lib/api';
 import bannerHero from '../assets/brand/banner-hero.jpg';
 import logoColor from '../assets/brand/logo-color.png';
 import molduraCorner from '../assets/brand/moldura-corner.png';
@@ -63,17 +65,65 @@ const TILES: Tile[] = [
   },
 ];
 
-export function MomentsGallery() {
-  return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:[grid-auto-rows:9rem]">
-      {TILES.map((tile, i) => (
-        <div
-          key={i}
-          className={`${tile.className} ${tile.rot} aspect-square overflow-hidden border-2 border-ink shadow-[6px_6px_0_0_rgba(0,0,0,0.4)] transition-transform duration-300 hover:z-10 hover:scale-[1.04] hover:rotate-0 sm:aspect-auto`}
-        >
-          {tile.content}
+const ROTATIONS = ['rotate-2', '-rotate-2', 'rotate-1', '-rotate-1'];
+
+/** Cartaz em destaque seguido das fotografias carregadas no backoffice. */
+function photoTiles(photos: GalleryPhoto[]): Tile[] {
+  return [
+    TILES[0],
+    ...photos.map((photo, i) => ({
+      className: '',
+      rot: ROTATIONS[i % ROTATIONS.length],
+      content: (
+        <div className="relative h-full w-full">
+          <img
+            src={photo.url}
+            alt={photo.caption ?? 'Fotografia do Kwamikon'}
+            loading="lazy"
+            className="h-full w-full object-cover"
+          />
+          {photo.caption && (
+            <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink/90 to-transparent p-3 text-xs font-extrabold uppercase tracking-wide text-cream">
+              {photo.caption}
+            </span>
+          )}
         </div>
-      ))}
-    </div>
+      ),
+    })),
+  ];
+}
+
+export function MomentsGallery() {
+  const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
+
+  useEffect(() => {
+    // Sem fotografias (ou com a API em baixo) ficam as peças da identidade.
+    api.gallery
+      .list()
+      .then(setPhotos)
+      .catch(() => undefined);
+  }, []);
+
+  const tiles = photos.length > 0 ? photoTiles(photos) : TILES;
+
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:[grid-auto-rows:9rem]">
+        {tiles.map((tile, i) => (
+          <div
+            key={i}
+            className={`${tile.className} ${tile.rot} aspect-square overflow-hidden border-2 border-ink shadow-[6px_6px_0_0_rgba(0,0,0,0.4)] transition-transform duration-300 hover:z-10 hover:scale-[1.04] hover:rotate-0 sm:aspect-auto`}
+          >
+            {tile.content}
+          </div>
+        ))}
+      </div>
+      {photos.length === 0 && (
+        <p className="mt-6 text-xs text-cream/40">
+          Peças oficiais da identidade do Kwamikon Nexus. Fotografias das edições anteriores são adicionadas assim que a
+          organização as disponibilizar.
+        </p>
+      )}
+    </>
   );
 }

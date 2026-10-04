@@ -11,10 +11,13 @@ export class ApiError extends Error {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem('kwamikon_token');
 
+  // Com FormData o browser define o Content-Type multipart (com o boundary) sozinho.
+  const isForm = options.body instanceof FormData;
+
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...(isForm ? {} : { 'Content-Type': 'application/json' }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
@@ -59,6 +62,8 @@ export interface Reservation {
   quantity: number;
   notes: string | null;
   status: 'PENDENTE' | 'CONFIRMADO' | 'CANCELADO' | 'UTILIZADO';
+  /** Preenchido quando o sistema cancelou o pedido por falta de pagamento. */
+  cancelReason?: 'PAGAMENTO_EXPIRADO' | 'PAGAMENTO_FALHOU' | null;
   qrCode: string | null;
   createdAt: string;
   confirmedAt: string | null;
@@ -89,6 +94,21 @@ export interface PurchasedTicket {
   qrDataUrl: string | null;
 }
 
+export interface GalleryPhoto {
+  id: string;
+  caption: string | null;
+  createdAt: string;
+  /** Endereço completo da imagem. */
+  url: string;
+}
+
+export interface FaqItem {
+  id: string;
+  question: string;
+  answer: string;
+  sortOrder: number;
+}
+
 export type PaymentMethod = 'GPO' | 'REF';
 export type PaymentStatus = 'pending' | 'paid' | 'expired' | 'failed' | 'cancelled';
 
@@ -109,6 +129,36 @@ export interface Payment {
 export const api = {
   ticketTypes: {
     list: () => request<TicketType[]>('/ticket-types'),
+    listAll: () => request<TicketType[]>('/ticket-types/all'),
+    updatePrice: (id: string, refPrice: number) =>
+      request<TicketType>(`/ticket-types/${encodeURIComponent(id)}/price`, {
+        method: 'PATCH',
+        body: JSON.stringify({ refPrice }),
+      }),
+  },
+  gallery: {
+    list: () =>
+      request<Array<Omit<GalleryPhoto, 'url'> & { path: string }>>('/gallery').then((photos) =>
+        photos.map(({ path, ...photo }) => ({ ...photo, url: `${API_URL}${path}` })),
+      ),
+    upload: (photo: File, caption?: string) => {
+      const form = new FormData();
+      form.append('photo', photo);
+      if (caption) form.append('caption', caption);
+      return request<unknown>('/gallery', { method: 'POST', body: form });
+    },
+    updateCaption: (id: string, caption: string) =>
+      request<unknown>(`/gallery/${id}`, { method: 'PATCH', body: JSON.stringify({ caption }) }),
+    remove: (id: string) => request<void>(`/gallery/${id}`, { method: 'DELETE' }),
+  },
+  faq: {
+    list: () => request<FaqItem[]>('/faq'),
+    create: (data: { question: string; answer: string }) =>
+      request<FaqItem>('/faq', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: { question: string; answer: string }) =>
+      request<FaqItem>(`/faq/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    reorder: (ids: string[]) => request<FaqItem[]>('/faq/order', { method: 'PUT', body: JSON.stringify({ ids }) }),
+    remove: (id: string) => request<void>(`/faq/${id}`, { method: 'DELETE' }),
   },
   reservations: {
     create: (data: {

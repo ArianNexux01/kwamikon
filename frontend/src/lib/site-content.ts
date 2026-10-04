@@ -40,6 +40,10 @@ export const EVENT = {
   ],
 } as const;
 
+/**
+ * As perguntas frequentes editam-se no backoffice (/backoffice/faq). Esta lista só é
+ * mostrada se a API não responder.
+ */
 export const FAQ_ITEMS = [
   {
     question: 'O que é o Kwamikon Nexus?',
@@ -53,7 +57,7 @@ export const FAQ_ITEMS = [
   {
     question: 'Como funciona a reserva de bilhete?',
     answer:
-      'Na página de bilhetes escolhes o pacote, preenches os teus dados e pagas logo a seguir. Assim que o pagamento é confirmado, o bilhete com QR code fica ativo e é enviado para o teu email.',
+      'Na página de bilhetes escolhes o pacote, preenches os teus dados e pagas logo a seguir. Tens 5 minutos para concluir o pagamento: se não for confirmado nesse tempo, ou se falhar, o pedido é cancelado e podes fazer um novo. Assim que o pagamento é confirmado, o bilhete com QR code fica ativo e é enviado para o teu email.',
   },
   {
     question: 'Posso pagar o bilhete online, no site?',

@@ -1,8 +1,43 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { SectionHeading } from '../components/SectionHeading';
 import moldura from '../assets/brand/moldura-euvou.png';
+import molduraVertical from '../assets/brand/moldura-euvou-vertical.png';
 import { useEuVouCanvas, type Aspect } from '../hooks/useEuVouCanvas';
 import { EVENT } from '../lib/site-content';
+
+const FRAMES: Record<Aspect, string> = { square: moldura, portrait: molduraVertical, story: molduraVertical };
+
+type Facing = 'user' | 'environment';
+
+/**
+ * Pede a câmara com essa orientação. `exact` primeiro, porque alguns telemóveis tratam
+ * `facingMode: 'user'` só como preferência e abrem a traseira; sem câmara dessa
+ * orientação (ex.: portátil) aceita a que houver.
+ */
+async function getCamera(facing: Facing) {
+  const attempts: MediaStreamConstraints[] = [
+    { video: { facingMode: { exact: facing } }, audio: false },
+    { video: { facingMode: facing }, audio: false },
+    { video: true, audio: false },
+  ];
+  let lastError: unknown;
+  for (const constraints of attempts) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (err) {
+      lastError = err;
+      // Permissão negada: não adianta tentar outra configuração.
+      if (err instanceof DOMException && err.name === 'NotAllowedError') break;
+    }
+  }
+  throw lastError;
+}
+
+const ASPECT_LABELS: Record<Aspect, string> = {
+  square: 'Quadrado · Feed',
+  portrait: 'Vertical 4:5 · Feed',
+  story: 'Stories · Estado',
+};
 
 export function EuVou() {
   const {
@@ -15,27 +50,34 @@ export function EuVou() {
     changeZoom,
     changeAspect,
     exportImage,
-  } = useEuVouCanvas(moldura);
+  } = useEuVouCanvas(FRAMES);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraOn, setCameraOn] = useState(false);
+  const [facing, setFacing] = useState<Facing>('user');
+  const [canSwitchCamera, setCanSwitchCamera] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const dragState = useRef<{ x: number; y: number } | null>(null);
   const [shareState, setShareState] = useState<'idle' | 'sharing' | 'unsupported' | 'error'>('idle');
 
   const shareText = `Eu vou ao Kwamikon Nexus! ${EVENT.dateLabel} de ${EVENT.year}, no ${EVENT.venue}. ${EVENT.hashtag}`;
 
-  async function openCamera() {
+  async function openCamera(nextFacing: Facing = facing) {
     setCameraError(null);
+    streamRef.current?.getTracks().forEach((track) => track.stop());
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' },
-        audio: false,
-      });
+      const stream = await getCamera(nextFacing);
       streamRef.current = stream;
+      // A orientação real pode ser outra (fallback); o espelho segue a câmara aberta.
+      const actual = stream.getVideoTracks()[0]?.getSettings().facingMode;
+      setFacing(actual === 'environment' ? 'environment' : actual === 'user' ? 'user' : nextFacing);
       setCameraOn(true);
+      navigator.mediaDevices
+        .enumerateDevices()
+        .then((devices) => setCanSwitchCamera(devices.filter((d) => d.kind === 'videoinput').length > 1))
+        .catch(() => undefined);
       requestAnimationFrame(() => {
         if (videoRef.current) videoRef.current.srcObject = stream;
       });
@@ -58,8 +100,11 @@ export function EuVou() {
     temp.height = video.videoHeight;
     const ctx = temp.getContext('2d');
     if (!ctx) return;
-    ctx.translate(temp.width, 0);
-    ctx.scale(-1, 1);
+    // Só a câmara frontal é espelhada, como num espelho; a traseira fica como está.
+    if (facing === 'user') {
+      ctx.translate(temp.width, 0);
+      ctx.scale(-1, 1);
+    }
     ctx.drawImage(video, 0, 0);
     temp.toBlob((blob) => {
       if (blob) loadPhoto(blob);
@@ -138,7 +183,7 @@ export function EuVou() {
               <div className="flex flex-wrap justify-center gap-3">
                 <button
                   type="button"
-                  onClick={openCamera}
+                  onClick={() => openCamera('user')}
                   className="focus-ring cut-tag rotate-1 bg-magenta px-6 py-3 text-sm font-extrabold uppercase text-cream transition-transform hover:-rotate-1"
                 >
                   Usar câmara
@@ -156,7 +201,6 @@ export function EuVou() {
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
-                capture="user"
                 className="hidden"
                 onChange={handleFileChange}
               />
@@ -166,7 +210,13 @@ export function EuVou() {
           {cameraOn && (
             <div className="relative overflow-hidden border-2 border-yellow">
               {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-              <video ref={videoRef} autoPlay playsInline muted className="w-full -scale-x-100" />
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className={`w-full ${facing === 'user' ? '-scale-x-100' : ''}`}
+              />
               <div className="flex justify-center gap-3 bg-ink-soft p-3">
                 <button
                   type="button"
@@ -175,6 +225,15 @@ export function EuVou() {
                 >
                   Capturar
                 </button>
+                {canSwitchCamera && (
+                  <button
+                    type="button"
+                    onClick={() => openCamera(facing === 'user' ? 'environment' : 'user')}
+                    className="focus-ring cut-tag border-2 border-yellow px-6 py-2 text-sm font-extrabold uppercase text-yellow"
+                  >
+                    Trocar câmara
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={closeCamera}
@@ -188,8 +247,8 @@ export function EuVou() {
 
           {hasPhoto && (
             <div className="flex flex-col gap-4">
-              <div className="flex gap-2">
-                {(['square', 'story'] as Aspect[]).map((a) => (
+              <div className="flex flex-wrap gap-2">
+                {(Object.keys(ASPECT_LABELS) as Aspect[]).map((a) => (
                   <button
                     key={a}
                     type="button"
@@ -198,7 +257,7 @@ export function EuVou() {
                       aspect === a ? 'rotate-1 bg-yellow text-ink' : 'text-cream/60'
                     }`}
                   >
-                    {a === 'square' ? 'Quadrado · Feed' : 'Vertical · Stories'}
+                    {ASPECT_LABELS[a]}
                   </button>
                 ))}
               </div>
@@ -322,7 +381,10 @@ export function EuVou() {
           <h3 className="text-sm font-bold uppercase tracking-widest text-magenta">Como funciona</h3>
           <ol className="mt-4 list-decimal space-y-2 pl-5">
             <li>Tira uma foto com a câmara ou carrega uma existente.</li>
-            <li>Escolhe o formato: quadrado para Instagram/Facebook ou vertical para Stories/WhatsApp.</li>
+            <li>
+              Escolhe o formato: quadrado ou vertical 4:5 para o feed do Instagram/Facebook, ou Stories para os
+              Stories e o Estado do WhatsApp.
+            </li>
             <li>Arrasta e ajusta o zoom até ficares bem enquadrado.</li>
             <li>Descarrega e partilha com a hashtag {EVENT.hashtag}.</li>
           </ol>

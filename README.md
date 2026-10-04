@@ -97,6 +97,20 @@ do briefing (datas, local, tipos de bilhete e preços, contacto). Falta ainda:
   momento da confirmação — nunca pelo cliente — para evitar duplicação,
   seguindo a mesma lógica de identificador único pedida no briefing.
 
+## Galeria e preços (backoffice)
+
+Só o perfil `ORGANIZADOR` vê as páginas "Preços" e "Galeria" do backoffice, e
+a API recusa os pedidos de outros perfis com 403.
+
+As fotografias (JPG, PNG ou WebP até 8 MB, tipo verificado pelo conteúdo do
+ficheiro) ficam em `UPLOAD_DIR` e aparecem na galeria da página inicial. Em
+produção `UPLOAD_DIR=/app/data/uploads`, no mesmo volume da base de dados, e o
+nginx do servidor aceita até 9 MB em `/api/gallery`.
+
+Um preço novo vale para os pagamentos iniciados depois da alteração; as
+cobranças já abertas mantêm o valor original. O seed só define o preço quando
+cria o tipo de bilhete, por isso um reinício do container não repõe os preços.
+
 ## Pagamentos (Vero Pays)
 
 A integração segue a documentação em https://eterim.vero.ao/app/docs (o
@@ -129,8 +143,10 @@ Fluxo:
    telemóvel e o método preferido. O backend cria a transação
    (`POST /api/payments`) e guarda logo o id devolvido na tabela `Payment`.
 2. O site redirecciona o visitante para o `paymentUrl`, a página de pagamento
-   da Vero. É lá que ele aprova o Multicaixa Express ou vê a entidade e a
-   referência, que a API não devolve.
+   da Vero (nunca para o `checkoutUrl` do gateway). É lá que ele aprova o
+   Multicaixa Express (tem cerca de 1 minuto) ou vê a entidade e a referência.
+   O método escolhido no site é final: para trocar de Express para Referência
+   o backend cria uma transação nova em vez de reaproveitar a pendente.
 3. No fim, a Vero devolve-o ao endpoint de acknowledge
    `GET /api/payments/return/:reservationId` (o `successUrl` e o `failureUrl`
    enviados na criação). O endpoint consulta a Vero
@@ -176,3 +192,100 @@ já não pode ser cancelada.
 Na fila offline do ecrã de check-in, cada leitura guarda a hora em que foi
 feita. Uma leitura às 23h50 de dia 31 que só sincroniza no dia seguinte conta
 para dia 31. O servidor ignora horas com mais de 36 horas ou no futuro.
+
+## Deploy em produção (VPS com nginx)
+
+O nginx do servidor termina o HTTPS (certificado Let's Encrypt) e encaminha para
+os containers, que só escutam em `127.0.0.1`: `/api/` vai para o backend
+(porta 3333) e o resto para o frontend (porta 8080). Site e API ficam no mesmo
+domínio.
+
+Antes de começar:
+
+- DNS: registos A (e AAAA, se houver IPv6) de `<dominio>` e `www.<dominio>`
+  a apontar para o IP da VPS. Sem o `www`, usar `--no-www` no passo 4.
+- Portas 80 e 443 abertas na firewall. As portas 3333 e 8080 não precisam de
+  estar abertas.
+- Docker com o plugin compose, nginx e (opcionalmente) certbot instalados.
+
+O `docker-compose.prod.yml` não constrói imagens: usa as publicadas no Docker
+Hub. Para as construir e publicar, na máquina de desenvolvimento:
+
+```bash
+docker build -t <utilizador>/kwamikon-backend:<tag> ./backend
+docker build --build-arg VITE_API_URL=/api -t <utilizador>/kwamikon-frontend:<tag> ./frontend
+docker push <utilizador>/kwamikon-backend:<tag>
+docker push <utilizador>/kwamikon-frontend:<tag>
+```
+
+O `VITE_API_URL=/api` é obrigatório no frontend: o endereço da API fica embutido
+no build (sem ele, o site chama `http://localhost:3333/api`). Se a VPS for ARM
+e a máquina de build não, acrescentar `--platform linux/arm64` (ou o inverso,
+`linux/amd64`).
+
+Passos, na VPS:
+
+1. Clonar o repositório (só são usados o `docker-compose.prod.yml`, a pasta
+   `deploy/` e os ficheiros `.env`) e criar os ficheiros de configuração:
+
+   ```bash
+   cp .env.example .env                  # DOMAIN, BACKEND_IMAGE, FRONTEND_IMAGE
+   cp backend/.env.example backend/.env  # segredos: ver abaixo
+   ```
+
+   Se o repositório no Docker Hub for privado, fazer `docker login` antes.
+
+   No `backend/.env`, definir pelo menos `JWT_SECRET` (valor longo e
+   aleatório), as variáveis da Vero Pays e as do SMTP. Definir também
+   `SEED_ORG_PASSWORD` e `SEED_STAFF_PASSWORD` **antes do primeiro arranque**:
+   só são aplicadas quando os utilizadores do backoffice são criados, e sem
+   elas ficam as passwords por omissão indicadas neste README. `DATABASE_URL`, `CORS_ORIGIN`, `PUBLIC_SITE_URL` e
+   `PUBLIC_API_URL` são definidos pelo `docker-compose.prod.yml` a partir do
+   `DOMAIN`.
+
+2. Descarregar as imagens e arrancar os containers:
+
+   ```bash
+   docker compose -f docker-compose.prod.yml pull
+   docker compose -f docker-compose.prod.yml up -d
+   ```
+
+3. Confirmar que respondem localmente:
+
+   ```bash
+   curl -s http://127.0.0.1:3333/api/ticket-types
+   curl -sI http://127.0.0.1:8080
+   ```
+
+4. Configurar o nginx e emitir o certificado:
+
+   ```bash
+   sudo bash deploy/setup-server.sh <dominio> <email-para-avisos-do-letsencrypt>
+   ```
+
+   O script instala o site em `/etc/nginx/sites-available/kwamikon.conf` (ou
+   `conf.d`), pede o certificado com o desafio HTTP (`/var/www/certbot`),
+   activa a configuração HTTPS, instala um hook que recarrega o nginx a cada
+   renovação e testa a renovação automática. Pode ser corrido de novo sem
+   problemas. Para experimentar sem gastar os limites do Let's Encrypt, correr
+   primeiro com `--staging` e depois sem essa opção.
+
+5. No dashboard da Vero Pays, configurar o webhook para
+   `https://<dominio>/api/payments/webhook`.
+
+Para actualizar, publicar as imagens novas e, na VPS (depois de mudar a tag no
+`.env`, se não usares `latest`):
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+As migrações da base de dados correm sozinhas no arranque do backend, e a base
+de dados SQLite fica no volume `kwamikon_backend_data`.
+
+A configuração do nginx (`deploy/nginx/kwamikon.conf`) inclui redirecção de
+HTTP e de `www` para `https://<dominio>`, HTTP/2, HSTS e outros cabeçalhos de
+segurança, gzip, limite de pedidos na API (mais apertado no login do
+backoffice, sem limite no webhook da Vero) e cache longa para os ficheiros do
+build.

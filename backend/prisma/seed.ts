@@ -36,9 +36,13 @@ const TICKET_TYPES = [
 
 async function main() {
   for (const type of TICKET_TYPES) {
+    // O seed corre em cada arranque do container: o preço só é definido na criação,
+    // para não apagar os preços alterados pelo organizador no backoffice.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { refPrice, ...rest } = type;
     await prisma.ticketType.upsert({
       where: { id: type.name },
-      update: type,
+      update: rest,
       create: { id: type.name, ...type },
     });
   }

@@ -1,0 +1,47 @@
+# Produção: os containers só escutam em 127.0.0.1. O acesso público (HTTPS) é feito
+# pelo nginx do servidor, configurado com deploy/setup-server.sh.
+#
+# Usa as imagens publicadas no Docker Hub (BACKEND_IMAGE e FRONTEND_IMAGE no .env da raiz):
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+name: kwamikon
+
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?Define BACKEND_IMAGE no ficheiro .env da raiz}
+    env_file:
+      - ./backend/.env
+    environment:
+      NODE_ENV: production
+      PORT: 3333
+      DATABASE_URL: file:/app/data/kwamikon.db
+      # Fotografias da galeria: no mesmo volume da base de dados, para sobreviverem a deploys.
+      UPLOAD_DIR: /app/data/uploads
+      # Site e API no mesmo domínio: a Vero devolve o cliente a https://<dominio>/api/payments/return/...
+      CORS_ORIGIN: https://${DOMAIN:?Define DOMAIN no ficheiro .env da raiz}
+      PUBLIC_SITE_URL: https://${DOMAIN}
+      PUBLIC_API_URL: https://${DOMAIN}
+    ports:
+      - "127.0.0.1:3333:3333"
+    volumes:
+      - backend_data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3333/api/ticket-types >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  frontend:
+    # A imagem tem de ser construída com --build-arg VITE_API_URL=/api: o endereço da API
+    # fica embutido no build e o nginx do servidor encaminha /api/ para o backend.
+    image: ${FRONTEND_IMAGE:?Define FRONTEND_IMAGE no ficheiro .env da raiz}
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  backend_data:

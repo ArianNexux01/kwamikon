@@ -22,3 +22,6 @@ prisma/*.db-journal
 # OS
 .DS_Store
 Thumbs.db
+
+# fotografias da galeria carregadas no backoffice
+uploads

@@ -138,10 +138,6 @@ export function Home() {
         <div className="mt-10">
           <MomentsGallery />
         </div>
-        <p className="mt-6 text-xs text-cream/40">
-          Peças oficiais da identidade do Kwamikon Nexus. Fotografias das edições anteriores são adicionadas assim
-          que a organização as disponibilizar.
-        </p>
       </section>
 
       {/* BILHETES PREVIEW */}

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-export type Aspect = 'square' | 'story';
+export type Aspect = 'square' | 'portrait' | 'story';
 
 export const EXPORT_SIZES: Record<Aspect, { w: number; h: number }> = {
   square: { w: 1080, h: 1080 },
+  portrait: { w: 1080, h: 1350 },
   story: { w: 1080, h: 1920 },
 };
 
@@ -16,9 +17,9 @@ interface Offset {
  * Composição da foto do visitante com a moldura oficial, feita inteiramente
  * em canvas no browser — a foto nunca é enviada para nenhum servidor.
  */
-export function useEuVouCanvas(frameSrc: string) {
+export function useEuVouCanvas(frameSrcs: Record<Aspect, string>) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const frameImgRef = useRef<HTMLImageElement | null>(null);
+  const frameImgsRef = useRef<Partial<Record<Aspect, HTMLImageElement>>>({});
   const photoImgRef = useRef<HTMLImageElement | null>(null);
 
   const [aspect, setAspect] = useState<Aspect>('square');
@@ -27,14 +28,40 @@ export function useEuVouCanvas(frameSrc: string) {
   const [hasPhoto, setHasPhoto] = useState(false);
   const [ready, setReady] = useState(false);
 
+  // Formatos podem partilhar a mesma moldura: cada ficheiro é carregado uma vez.
+  const squareSrc = frameSrcs.square;
+  const portraitSrc = frameSrcs.portrait;
+  const storySrc = frameSrcs.story;
   useEffect(() => {
-    const img = new Image();
-    img.onload = () => {
-      frameImgRef.current = img;
-      setReady(true);
+    const srcs: Record<Aspect, string> = { square: squareSrc, portrait: portraitSrc, story: storySrc };
+    const unique = [...new Set(Object.values(srcs))];
+    let cancelled = false;
+    Promise.all(
+      unique.map(
+        (src) =>
+          new Promise<[string, HTMLImageElement]>((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve([src, img]);
+            img.onerror = reject;
+            img.src = src;
+          }),
+      ),
+    )
+      .then((loaded) => {
+        if (cancelled) return;
+        const bySrc = new Map(loaded);
+        frameImgsRef.current = {
+          square: bySrc.get(srcs.square),
+          portrait: bySrc.get(srcs.portrait),
+          story: bySrc.get(srcs.story),
+        };
+        setReady(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
     };
-    img.src = frameSrc;
-  }, [frameSrc]);
+  }, [squareSrc, portraitSrc, storySrc]);
 
   const clampOffset = useCallback(
     (raw: Offset, z: number, size: { w: number; h: number }) => {
@@ -60,7 +87,7 @@ export function useEuVouCanvas(frameSrc: string) {
   const draw = useCallback(
     (targetAspect: Aspect = aspect) => {
       const canvas = canvasRef.current;
-      const frame = frameImgRef.current;
+      const frame = frameImgsRef.current[targetAspect];
       if (!canvas || !frame) return;
 
       const size = EXPORT_SIZES[targetAspect];
@@ -84,12 +111,12 @@ export function useEuVouCanvas(frameSrc: string) {
         ctx.drawImage(photo, x, y, drawW, drawH);
       }
 
-      // Moldura: escala uniforme (nunca distorcida), ancorada consoante o formato.
-      const frameScale = size.w / frame.naturalWidth;
-      const frameW = size.w;
+      // Moldura: escala uniforme (nunca distorcida) a cobrir o formato, centrada. Quando a
+      // proporção difere (moldura 4:5 em Stories 9:16) corta as laterais, onde só há máscaras.
+      const frameScale = Math.max(size.w / frame.naturalWidth, size.h / frame.naturalHeight);
+      const frameW = frame.naturalWidth * frameScale;
       const frameH = frame.naturalHeight * frameScale;
-      const frameY = targetAspect === 'story' ? size.h - frameH : (size.h - frameH) / 2;
-      ctx.drawImage(frame, 0, frameY, frameW, frameH);
+      ctx.drawImage(frame, (size.w - frameW) / 2, (size.h - frameH) / 2, frameW, frameH);
     },
     [aspect, zoom, offset, clampOffset],
   );

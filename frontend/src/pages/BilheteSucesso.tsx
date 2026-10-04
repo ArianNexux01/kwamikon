@@ -49,6 +49,9 @@ export function BilheteSucesso() {
             if (!current.ticketEmailSent && current.email && emailChecks++ < EMAIL_CHECKS) {
               schedule(FAST_POLL_MS);
             }
+          } else if (current.status === 'CANCELADO') {
+            // O pedido cancelado não pode ser pago: o próximo checkout tem de começar do zero.
+            if (loadCheckout()?.reservation.id === current.id) saveCheckout(null);
           } else if (current.paymentStatus === 'pending') {
             schedule(Date.now() - startedAt < FAST_POLL_WINDOW_MS ? FAST_POLL_MS : SLOW_POLL_MS);
           }
@@ -86,7 +89,7 @@ export function BilheteSucesso() {
 
   const confirmed = ticket.status === 'CONFIRMADO' || ticket.status === 'UTILIZADO';
 
-  if (!confirmed && ticket.paymentStatus === 'pending') {
+  if (!confirmed && ticket.status !== 'CANCELADO' && ticket.paymentStatus === 'pending') {
     return (
       <Shell step={3}>
         <div className="mt-10 max-w-2xl border-2 border-yellow/40 bg-ink-soft p-6">
@@ -108,10 +111,10 @@ export function BilheteSucesso() {
     return (
       <Shell step={3}>
         <div role="alert" className="mt-10 max-w-2xl border-l-4 border-magenta bg-magenta/10 p-5 text-sm text-cream">
-          O pagamento não foi concluído, por isso o bilhete ainda não está ativo. Podes voltar ao pagamento e tentar
-          novamente.
+          O pagamento não foi concluído, ou não foi confirmado a tempo, e o pedido foi cancelado. Faz um novo pedido
+          para tentares outra vez. Se achas que pagaste, contacta a {EVENT.orgName} pelo {EVENT.orgPhone}.
         </div>
-        <BackToCheckout label="Voltar ao pagamento" />
+        <BackToCheckout label="Fazer um novo pedido" />
       </Shell>
     );
   }

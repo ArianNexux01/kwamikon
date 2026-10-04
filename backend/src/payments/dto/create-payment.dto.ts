@@ -4,7 +4,7 @@ export class CreatePaymentDto {
   @IsString()
   reservationId: string;
 
-  /** Método sugerido: na página de pagamento da Vero o cliente pode escolher outro. */
+  /** Método final: o cliente já não o pode trocar na página de pagamento da Vero. */
   @IsIn(['GPO', 'REF'])
   method: 'GPO' | 'REF';
 
