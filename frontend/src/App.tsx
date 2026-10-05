@@ -9,6 +9,8 @@ import { Programacao } from './pages/Programacao';
 import { Bilhetes } from './pages/Bilhetes';
 import { BilheteSucesso } from './pages/BilheteSucesso';
 import { EuVou } from './pages/EuVou';
+import { Torneios } from './pages/Torneios';
+import { TorneioSucesso } from './pages/TorneioSucesso';
 import { Faq } from './pages/Faq';
 import { Contacto } from './pages/Contacto';
 import { NotFound } from './pages/NotFound';
@@ -18,6 +20,8 @@ import { Checkin } from './pages/backoffice/Checkin';
 import { Precos } from './pages/backoffice/Precos';
 import { Galeria } from './pages/backoffice/Galeria';
 import { FaqAdmin } from './pages/backoffice/FaqAdmin';
+import { TorneiosAdmin } from './pages/backoffice/Torneios';
+import { ProgramacaoAdmin } from './pages/backoffice/ProgramacaoAdmin';
 
 export default function App() {
   return (
@@ -30,6 +34,8 @@ export default function App() {
             <Route path="/programacao" element={<Programacao />} />
             <Route path="/bilhetes" element={<Bilhetes />} />
             <Route path="/bilhetes/sucesso" element={<BilheteSucesso />} />
+            <Route path="/torneios" element={<Torneios />} />
+            <Route path="/torneios/sucesso" element={<TorneioSucesso />} />
             <Route path="/eu-vou" element={<EuVou />} />
             <Route path="/faq" element={<Faq />} />
             <Route path="/contacto" element={<Contacto />} />
@@ -45,6 +51,8 @@ export default function App() {
                 <Route path="/backoffice/precos" element={<Precos />} />
                 <Route path="/backoffice/galeria" element={<Galeria />} />
                 <Route path="/backoffice/faq" element={<FaqAdmin />} />
+                <Route path="/backoffice/torneios" element={<TorneiosAdmin />} />
+                <Route path="/backoffice/programacao" element={<ProgramacaoAdmin />} />
               </Route>
             </Route>
           </Route>

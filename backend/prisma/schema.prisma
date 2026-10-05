@@ -123,3 +123,90 @@ model FaqItem {
 
   @@index([sortOrder])
 }
+
+/// Torneio de gaming (ex.: EA SPORTS FC 27, Mortal Kombat 11), gerido no backoffice.
+/// TournamentEntryStatus: "PENDENTE" | "CONFIRMADO" | "CANCELADO"
+model Tournament {
+  id               String            @id @default(uuid())
+  name             String
+  game             String
+  /// Opcional: as partidas são jogadas nos equipamentos disponibilizados pela organização.
+  platform         String?
+  description      String?
+  /// Dia do torneio (YYYY-MM-DD, um dos dias do evento) e hora de início ("14:00").
+  eventDay         String?
+  startTime        String?
+  entryFeeKz       Int
+  maxPlayers       Int
+  registrationOpen Boolean           @default(true)
+  sortOrder        Int               @default(0)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  entries          TournamentEntry[]
+
+  @@index([sortOrder])
+}
+
+/// Inscrição de um jogador num torneio. Ocupa vaga enquanto está pendente (dentro do
+/// prazo de pagamento) ou confirmada.
+model TournamentEntry {
+  id           String              @id @default(uuid())
+  tournamentId String
+  tournament   Tournament          @relation(fields: [tournamentId], references: [id])
+  fullName     String
+  gamerTag     String
+  contact      String
+  contactNorm  String
+  email        String
+  status       String              @default("PENDENTE")
+  /// "PAGAMENTO_EXPIRADO" | "PAGAMENTO_FALHOU" quando é o sistema a cancelar.
+  cancelReason String?
+  /// Marca o envio do email de confirmação, para não o enviar duas vezes.
+  emailSentAt  DateTime?
+  createdAt    DateTime            @default(now())
+  confirmedAt  DateTime?
+  payments     TournamentPayment[]
+
+  @@index([tournamentId, status])
+  @@index([contactNorm])
+}
+
+/// Cobrança Vero de uma inscrição em torneio. Separada de Payment para não misturar
+/// o fluxo dos bilhetes; o webhook é o mesmo e encaminha pelo id da transação.
+model TournamentPayment {
+  id              String          @id
+  entryId         String
+  entry           TournamentEntry @relation(fields: [entryId], references: [id])
+  method          String
+  amountKz        Int
+  status          String          @default("pending")
+  customerPhone   String?
+  paymentUrl      String?
+  referenceEntity String?
+  referenceNumber String?
+  expiresAt       DateTime?
+  paidAt          DateTime?
+  lastSyncedAt    DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([entryId])
+  @@index([status])
+}
+
+/// Atividade da página /programacao, gerida no backoffice pelo organizador.
+model ProgramItem {
+  id          String   @id @default(uuid())
+  /// Dia do evento (YYYY-MM-DD) e horas no formato "14:00"; a hora de fim é opcional.
+  eventDay    String
+  startTime   String
+  endTime     String?
+  title       String
+  /// Zona do recinto (ex.: "Palco Principal").
+  zone        String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([eventDay, startTime])
+}

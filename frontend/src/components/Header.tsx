@@ -7,6 +7,7 @@ const LINKS = [
   { to: '/sobre', label: 'Sobre' },
   { to: '/programacao', label: 'Programação' },
   { to: '/bilhetes', label: 'Bilhetes' },
+  { to: '/torneios', label: 'Torneios' },
   { to: '/eu-vou', label: 'Eu vou' },
   { to: '/faq', label: 'FAQ' },
   { to: '/contacto', label: 'Contacto' },

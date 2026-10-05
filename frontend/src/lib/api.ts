@@ -41,6 +41,27 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/**
+ * Ficheiro protegido (ex.: CSV do backoffice). Um link simples não leva o token no
+ * cabeçalho e a API responde 401, por isso o ficheiro é pedido por fetch.
+ */
+async function requestBlob(path: string): Promise<Blob> {
+  const token = localStorage.getItem('kwamikon_token');
+  const res = await fetch(`${API_URL}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let message = `Erro ${res.status}`;
+    try {
+      message = (await res.json()).message ?? message;
+    } catch {
+      // resposta sem corpo JSON
+    }
+    throw new ApiError(message, res.status);
+  }
+  return res.blob();
+}
+
 export interface TicketType {
   id: string;
   name: string;
@@ -109,12 +130,25 @@ export interface FaqItem {
   sortOrder: number;
 }
 
+export interface ProgramItem {
+  id: string;
+  /** Dia do evento (YYYY-MM-DD) e horas "14:00". */
+  eventDay: string;
+  startTime: string;
+  endTime: string | null;
+  title: string;
+  zone: string | null;
+  description: string | null;
+}
+
+export type ProgramItemInput = Omit<ProgramItem, 'id'>;
+
 export type PaymentMethod = 'GPO' | 'REF';
 export type PaymentStatus = 'pending' | 'paid' | 'expired' | 'failed' | 'cancelled';
 
-export interface Payment {
+/** Campos comuns às cobranças dos bilhetes e das inscrições nos torneios. */
+export interface PaymentBase {
   id: string;
-  reservationId: string;
   method: PaymentMethod;
   amountKz: number;
   status: PaymentStatus;
@@ -124,6 +158,70 @@ export interface Payment {
   expiresAt: string | null;
   paidAt: string | null;
   createdAt: string;
+}
+
+export interface Payment extends PaymentBase {
+  reservationId: string;
+}
+
+export interface TournamentPayment extends PaymentBase {
+  entryId: string;
+}
+
+export interface Tournament {
+  id: string;
+  name: string;
+  game: string;
+  /** null: joga-se nos equipamentos da organização, sem plataforma anunciada. */
+  platform: string | null;
+  description: string | null;
+  /** Dia do evento (YYYY-MM-DD) e hora ("14:00"); null enquanto não estiverem definidos. */
+  eventDay: string | null;
+  startTime: string | null;
+  entryFeeKz: number;
+  maxPlayers: number;
+  registrationOpen: boolean;
+  spotsLeft: number;
+}
+
+export interface AdminTournament extends Tournament {
+  sortOrder: number;
+  confirmed: number;
+  pending: number;
+}
+
+export type TournamentInput = Omit<Tournament, 'id' | 'spotsLeft'>;
+
+export type EntryStatus = 'PENDENTE' | 'CONFIRMADO' | 'CANCELADO';
+
+export interface TournamentEntry {
+  id: string;
+  tournamentId: string;
+  fullName: string;
+  gamerTag: string;
+  contact: string;
+  email: string;
+  status: EntryStatus;
+  cancelReason?: 'PAGAMENTO_EXPIRADO' | 'PAGAMENTO_FALHOU' | null;
+  emailSentAt?: string | null;
+  createdAt: string;
+  confirmedAt: string | null;
+  tournament: { id: string; name: string; entryFeeKz: number; game?: string; platform?: string | null };
+  payments?: TournamentPayment[];
+}
+
+/** Resumo público da inscrição para a página de sucesso. */
+export interface EntrySummary {
+  id: string;
+  fullName: string;
+  gamerTag: string;
+  tournament: { name: string; game: string; platform: string | null; eventDay: string | null; startTime: string | null };
+  status: EntryStatus;
+  paymentStatus: PaymentStatus | null;
+  amountKz: number;
+  /** Email mascarado (ex.: "ma***@gmail.com"). */
+  email: string;
+  emailSent: boolean;
 }
 
 export const api = {
@@ -191,7 +289,7 @@ export const api = {
         byStatus: { status: string; reservas: number; pessoas: number }[];
         byType: { ticketTypeId: string; name: string; reservas: number; pessoas: number }[];
       }>('/reservations/metrics'),
-    exportUrl: () => `${API_URL}/reservations/export.csv`,
+    exportCsv: () => requestBlob('/reservations/export.csv'),
   },
   payments: {
     create: (data: { reservationId: string; method: PaymentMethod; phone: string }) =>
@@ -200,6 +298,47 @@ export const api = {
     ticket: (reservationId: string) => request<PurchasedTicket>(`/payments/reservation/${reservationId}/ticket`),
     syncReservation: (reservationId: string) =>
       request<Reservation>(`/payments/reservation/${reservationId}/sync`, { method: 'POST' }),
+  },
+  program: {
+    list: () => request<{ eventDays: string[]; items: ProgramItem[] }>('/program'),
+    create: (data: ProgramItemInput) =>
+      request<ProgramItem>('/program', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: ProgramItemInput) =>
+      request<ProgramItem>(`/program/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    remove: (id: string) => request<void>(`/program/${id}`, { method: 'DELETE' }),
+  },
+  tournaments: {
+    list: () => request<Tournament[]>('/tournaments'),
+    admin: () => request<{ eventDays: string[]; tournaments: AdminTournament[] }>('/tournaments/admin'),
+    create: (data: TournamentInput) =>
+      request<AdminTournament>('/tournaments', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: TournamentInput) =>
+      request<AdminTournament>(`/tournaments/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    remove: (id: string) => request<void>(`/tournaments/${id}`, { method: 'DELETE' }),
+    register: (tournamentId: string, data: { fullName: string; gamerTag: string; contact: string; email: string }) =>
+      request<TournamentEntry>(`/tournaments/${tournamentId}/entries`, { method: 'POST', body: JSON.stringify(data) }),
+  },
+  tournamentEntries: {
+    list: (tournamentId?: string) =>
+      request<TournamentEntry[]>(
+        `/tournament-entries${tournamentId ? `?tournamentId=${encodeURIComponent(tournamentId)}` : ''}`,
+      ),
+    summary: (id: string) => request<EntrySummary>(`/tournament-entries/${id}/summary`),
+    updateStatus: (id: string, status: EntryStatus) =>
+      request<TournamentEntry>(`/tournament-entries/${id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      }),
+    sync: (id: string) => request<TournamentEntry>(`/tournament-entries/${id}/sync`, { method: 'POST' }),
+    exportCsv: (tournamentId?: string) =>
+      requestBlob(
+        `/tournament-entries/export.csv${tournamentId ? `?tournamentId=${encodeURIComponent(tournamentId)}` : ''}`,
+      ),
+  },
+  tournamentPayments: {
+    create: (data: { entryId: string; method: PaymentMethod; phone: string }) =>
+      request<TournamentPayment>('/tournament-payments', { method: 'POST', body: JSON.stringify(data) }),
+    status: (id: string) => request<TournamentPayment>(`/tournament-payments/${id}`),
   },
   auth: {
     login: (email: string, password: string) =>

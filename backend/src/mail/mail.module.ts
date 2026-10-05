@@ -4,6 +4,6 @@ import { TicketMailService } from './ticket-mail.service';
 
 @Module({
   providers: [MailService, TicketMailService],
-  exports: [TicketMailService],
+  exports: [MailService, TicketMailService],
 })
 export class MailModule {}

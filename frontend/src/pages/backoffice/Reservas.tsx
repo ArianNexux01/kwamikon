@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type Payment, type Reservation } from '../../lib/api';
 import { formatEventDay, formatKz } from '../../lib/format';
 import { useAuth } from '../../context/AuthContext';
+import { saveBlob } from '../../lib/download';
 
 const STATUS_LABELS: Record<Reservation['status'], string> = {
   PENDENTE: 'Pendente',
@@ -43,6 +44,7 @@ export function Reservas() {
   const [notice, setNotice] = useState<string | null>(null);
   const [qrFor, setQrFor] = useState<Reservation | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [metrics, setMetrics] = useState<{ total: number; byStatus: { status: string; reservas: number; pessoas: number }[] } | null>(null);
 
   const load = useCallback(() => {
@@ -96,6 +98,18 @@ export function Reservas() {
     }
   }
 
+  async function exportCsv() {
+    setError(null);
+    setExporting(true);
+    try {
+      saveBlob(await api.reservations.exportCsv(), 'reservas-kwamikon.csv');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Não foi possível exportar as reservas.');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function openQr(reservation: Reservation) {
     setQrFor(reservation);
     setQrDataUrl(null);
@@ -112,12 +126,14 @@ export function Reservas() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-2xl font-extrabold text-cream">Reservas</h1>
         {isOrganizador && (
-          <a
-            href={api.reservations.exportUrl()}
-            className="cut-tag bg-yellow px-5 py-2 text-xs font-extrabold uppercase text-ink"
+          <button
+            type="button"
+            onClick={exportCsv}
+            disabled={exporting}
+            className="cut-tag bg-yellow px-5 py-2 text-xs font-extrabold uppercase text-ink disabled:opacity-40"
           >
-            Exportar CSV
-          </a>
+            {exporting ? 'A exportar…' : 'Exportar CSV'}
+          </button>
         )}
       </div>
 

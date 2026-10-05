@@ -1,16 +1,19 @@
 export type CheckoutStep = 1 | 2 | 3 | 4;
 
-const STEPS: { id: CheckoutStep; label: string }[] = [
-  { id: 1, label: 'Pacote' },
-  { id: 2, label: 'Os teus dados' },
-  { id: 3, label: 'Pagamento' },
-  { id: 4, label: 'Confirmação' },
-];
+const DEFAULT_LABELS = ['Pacote', 'Os teus dados', 'Pagamento', 'Confirmação'];
 
-export function CheckoutStepper({ current }: { current: CheckoutStep }) {
+export function CheckoutStepper({
+  current,
+  labels = DEFAULT_LABELS,
+}: {
+  current: CheckoutStep;
+  /** Nome dos quatro passos; por omissão, os da compra de bilhetes. */
+  labels?: string[];
+}) {
+  const steps = labels.map((label, i) => ({ id: (i + 1) as CheckoutStep, label }));
   return (
     <ol className="mt-10 grid grid-cols-4 gap-2" aria-label="Passos da compra">
-      {STEPS.map((s) => {
+      {steps.map((s) => {
         const done = s.id < current;
         const active = s.id === current;
         return (

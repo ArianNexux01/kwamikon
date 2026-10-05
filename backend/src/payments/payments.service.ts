@@ -17,29 +17,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ReservationsService } from '../reservations/reservations.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { VeroClient, VeroTransaction } from './vero.client';
-
-/**
- * Intervalo mínimo entre duas consultas à Vero para a mesma cobrança. A documentação
- * pede no máximo uma consulta a cada 3 a 5 s (limite global de 200 pedidos/min).
- */
-const SYNC_THROTTLE_MS = 4_000;
-
-/**
- * Tempo que o cliente tem para concluir o pagamento, contado desde a criação do
- * pedido. Passado este prazo sem confirmação, o pedido é cancelado.
- * O frontend mostra o mesmo valor (PAYMENT_WINDOW_MINUTES em PaymentStep).
- */
-const PAYMENT_WINDOW_MS = 5 * 60_000;
-
-/** Frequência da verificação dos pedidos fora de prazo. */
-const SWEEP_INTERVAL_MS = 30_000;
-
-/** Estados da Vero em que a cobrança já não pode ser paga. */
-const FAILED_STATUSES: ReadonlySet<string> = new Set([
-  'failed',
-  'expired',
-  'cancelled',
-]);
+import {
+  FAILED_STATUSES,
+  PAYMENT_WINDOW_MS,
+  SWEEP_INTERVAL_MS,
+  SYNC_THROTTLE_MS,
+  maskEmail,
+  normalizePhone,
+} from './payment-rules';
+import { TournamentPaymentsService } from '../tournaments/tournament-payments.service';
 
 const CANCELLED_MESSAGE =
   'Este pedido foi cancelado porque o pagamento não foi concluído. Faz um novo pedido.';
@@ -62,6 +48,7 @@ export class PaymentsService implements OnModuleInit, OnModuleDestroy {
     private readonly vero: VeroClient,
     private readonly reservations: ReservationsService,
     private readonly config: ConfigService,
+    private readonly tournamentPayments: TournamentPaymentsService,
   ) {}
 
   onModuleInit() {
@@ -107,7 +94,7 @@ export class PaymentsService implements OnModuleInit, OnModuleDestroy {
     const reservation = await this.reservations.findOne(dto.reservationId);
     await this.assertPayable(reservation);
 
-    const phone = this.normalizePhone(dto.phone);
+    const phone = normalizePhone(dto.phone);
     // Preço actual: se o organizador o alterou, as cobranças antigas deixam de servir.
     const amount = reservation.ticketType.refPrice * reservation.quantity;
     const open = await this.prisma.payment.findMany({
@@ -341,6 +328,12 @@ export class PaymentsService implements OnModuleInit, OnModuleDestroy {
       where: { id: payload.transaction_id },
     });
     if (!payment) {
+      // As inscrições nos torneios usam o mesmo projecto Vero e, por isso, o mesmo webhook.
+      if (
+        await this.tournamentPayments.handleTransaction(payload.transaction_id)
+      ) {
+        return { received: true };
+      }
       this.logger.warn(
         `Webhook ${payload.event} para transação desconhecida ${payload.transaction_id}.`,
       );
@@ -559,15 +552,4 @@ export class PaymentsService implements OnModuleInit, OnModuleDestroy {
       timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
     );
   }
-
-  private normalizePhone(raw: string) {
-    const digits = raw.replace(/\D/g, '');
-    return digits.slice(-9);
-  }
-}
-
-/** "maria.santos@gmail.com" → "ma***@gmail.com": confirma o destino sem o expor. */
-function maskEmail(email: string) {
-  const [user, domain] = email.split('@');
-  return `${user.slice(0, 2)}***@${domain}`;
 }

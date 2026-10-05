@@ -1,80 +1,100 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { SectionHeading } from '../components/SectionHeading';
+import { api, type ProgramItem } from '../lib/api';
+import { formatEventDay } from '../lib/format';
 import { EVENT } from '../lib/site-content';
 
-interface Slot {
-  time: string;
-  title: string;
-  zone: string;
-}
-
-const DIA_1: Slot[] = [
-  { time: '10h00', title: 'Abertura de portas', zone: 'Entrada' },
-  { time: '10h30', title: 'Concurso de Cosplay — inscrições', zone: 'Palco Principal' },
-  { time: '12h00', title: 'Torneio de Gaming — fase de grupos', zone: 'Zona Gamer' },
-  { time: '15h00', title: 'Artist Alley aberto', zone: 'Artist Alley' },
-  { time: '17h00', title: 'Desfile de Cosplay', zone: 'Palco Principal' },
-  { time: '19h00', title: 'Encerramento do dia', zone: 'Entrada' },
-];
-
-const DIA_2: Slot[] = [
-  { time: '10h00', title: 'Abertura de portas', zone: 'Entrada' },
-  { time: '11h00', title: 'Torneio de Gaming — finais', zone: 'Zona Gamer' },
-  { time: '13h00', title: 'Painel de banda desenhada angolana', zone: 'Sala de Talks' },
-  { time: '15h30', title: 'Sessão de cinema/projeção', zone: 'Sala de Cinema' },
-  { time: '17h30', title: 'Entrega de prémios', zone: 'Palco Principal' },
-  { time: '19h00', title: 'Encerramento do Nexus', zone: 'Entrada' },
-];
-
 export function Programacao() {
-  const [day, setDay] = useState<1 | 2>(1);
-  const slots = day === 1 ? DIA_1 : DIA_2;
+  const [eventDays, setEventDays] = useState<string[]>([]);
+  const [items, setItems] = useState<ProgramItem[]>([]);
+  const [day, setDay] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    api.program
+      .list()
+      .then((data) => {
+        setEventDays(data.eventDays);
+        setItems(data.items);
+        // Abre no primeiro dia que já tenha atividades.
+        setDay(data.eventDays.find((d) => data.items.some((i) => i.eventDay === d)) ?? data.eventDays[0] ?? null);
+      })
+      .catch(() => setFailed(true))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const slots = items.filter((item) => item.eventDay === day);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-16 sm:px-6 sm:py-24">
       <SectionHeading eyebrow="Programação" title="O que esperar no Nexus" />
 
-      <div className="rot-1 mt-8 border-2 border-yellow bg-yellow/10 px-5 py-4 text-sm text-cream/90">
-        A grelha abaixo é um exemplo de estrutura, para dar uma ideia do formato do evento. Os horários e as
-        atividades finais são publicados pela organização mais perto da data — consulta as redes sociais do
-        Kwamikon para a programação confirmada.
-      </div>
+      {loading && <p className="mt-10 text-sm text-cream/50">A carregar a programação…</p>}
 
-      <div className="mt-10 flex gap-3">
-        <button
-          type="button"
-          onClick={() => setDay(1)}
-          className={`cut-tag px-6 py-2 text-sm font-extrabold uppercase tracking-wide transition-transform ${
-            day === 1 ? 'rotate-1 bg-magenta text-cream' : 'text-cream/60 hover:text-cream'
-          }`}
-        >
-          Dia 1 — 31 out
-        </button>
-        <button
-          type="button"
-          onClick={() => setDay(2)}
-          className={`cut-tag px-6 py-2 text-sm font-extrabold uppercase tracking-wide transition-transform ${
-            day === 2 ? '-rotate-1 bg-magenta text-cream' : 'text-cream/60 hover:text-cream'
-          }`}
-        >
-          Dia 2 — 1 nov
-        </button>
-      </div>
+      {!loading && (failed || items.length === 0) && (
+        <div className="rot-1 mt-10 border-2 border-yellow bg-yellow/10 px-6 py-8 text-center">
+          <p className="text-2xl font-extrabold text-yellow sm:text-3xl">Programação brevemente disponível</p>
+          <p className="mx-auto mt-3 max-w-lg text-sm text-cream/75">
+            Estamos a fechar os horários do {EVENT.name}, {EVENT.dateLabel}. Volta em breve para veres tudo o que vai
+            acontecer no {EVENT.venue}.
+          </p>
+        </div>
+      )}
 
-      <ol className="mt-8 space-y-3">
-        {slots.map((slot) => (
-          <li
-            key={`${day}-${slot.time}`}
-            className="flex flex-col gap-1 border-l-4 border-magenta/60 bg-ink-soft px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <div className="flex items-baseline gap-4">
-              <span className="w-16 shrink-0 font-extrabold text-yellow">{slot.time}</span>
-              <span className="font-semibold text-cream">{slot.title}</span>
-            </div>
-            <span className="text-xs font-bold uppercase tracking-widest text-cream/50">{slot.zone}</span>
-          </li>
-        ))}
-      </ol>
+      {!loading && items.length > 0 && (
+        <>
+          <div className="mt-10 flex flex-wrap gap-3" role="tablist" aria-label="Dias do evento">
+            {eventDays.map((d, i) => (
+              <button
+                key={d}
+                type="button"
+                role="tab"
+                aria-selected={d === day}
+                onClick={() => setDay(d)}
+                className={`cut-tag px-6 py-2 text-sm font-extrabold uppercase tracking-wide transition-transform ${
+                  d === day
+                    ? `${i % 2 === 0 ? 'rotate-1' : '-rotate-1'} bg-magenta text-cream`
+                    : 'text-cream/60 hover:text-cream'
+                }`}
+              >
+                Dia {i + 1}, {formatEventDay(d)}
+              </button>
+            ))}
+          </div>
+
+          {slots.length === 0 ? (
+            <p className="mt-8 border-l-4 border-yellow/60 bg-ink-soft px-5 py-4 text-sm text-cream/70">
+              A programação deste dia está brevemente disponível.
+            </p>
+          ) : (
+            <ol className="mt-8 space-y-3">
+              {slots.map((slot) => (
+                <li
+                  key={slot.id}
+                  className="flex flex-col gap-1 border-l-4 border-magenta/60 bg-ink-soft px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6"
+                >
+                  <div className="flex items-baseline gap-4">
+                    <span className="w-24 shrink-0 font-extrabold text-yellow">
+                      {slot.startTime}
+                      {slot.endTime && <span className="text-yellow/60">–{slot.endTime}</span>}
+                    </span>
+                    <span>
+                      <span className="block font-semibold text-cream">{slot.title}</span>
+                      {slot.description && <span className="mt-1 block text-sm text-cream/60">{slot.description}</span>}
+                    </span>
+                  </div>
+                  {slot.zone && (
+                    <span className="pl-28 text-xs font-bold uppercase tracking-widest text-cream/50 sm:shrink-0 sm:pl-0">
+                      {slot.zone}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+        </>
+      )}
 
       <p className="mt-10 text-sm text-cream/50">
         Dúvidas sobre a programação? Contacta a {EVENT.orgName} pelo {EVENT.orgPhone}.

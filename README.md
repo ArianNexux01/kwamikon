@@ -72,8 +72,7 @@ do briefing (datas, local, tipos de bilhete e preços, contacto). Falta ainda:
 
 - **API Key e Webhook Secret da Vero Pays** do projecto Kwamikon (ver
   secção "Pagamentos").
-- **Programação detalhada** — a página `/programacao` mostra uma grelha de
-  exemplo claramente identificada como tal (`src/pages/Programacao.tsx`).
+- **Programação detalhada**: a introduzir no backoffice (`/backoffice/programacao`).
 - **Ficheiros de marca em vetor** e a fonte exata usada no texto corrido —
   o site usa Sora (Google Fonts) como alternativa, conforme sugerido no
   briefing, e os PNGs fornecidos foram usados diretamente (com alfa
@@ -176,6 +175,45 @@ cobrança nova.
 Em ambiente de testes da Vero, o telemóvel introduzido na página de pagamento
 decide o resultado: `900000000` paga, `900003000` cancela, `900002004`
 expira e qualquer outro `9xxxxxxxx` falha.
+
+## Programação
+
+A página `/programacao` lê as atividades da tabela `ProgramItem` (`backend/src/program/`),
+organizadas por dia do evento e por hora. O organizador gere-as em
+`/backoffice/programacao`: dia, hora de início, hora de fim opcional, título, zona e
+descrição. Enquanto não houver nenhuma atividade, o site mostra "Programação
+brevemente disponível"; um dia sem atividades mostra o mesmo aviso só para esse dia.
+
+## Torneios de gaming
+
+A página `/torneios` lista os torneios (EA SPORTS FC 26 e Mortal Kombat 11)
+e faz a inscrição em quatro passos: torneio, dados do jogador (nome, nome de
+jogador, telemóvel e email), pagamento da taxa pela Vero Pays e confirmação. Por
+baixo mostra o regulamento do documento "Torneio CNA" (eliminação simples, fase
+inicial em jogo único, BO3 até à semifinal e final em BO5), cujo texto está em
+`frontend/src/lib/tournaments.ts`. O
+código está em `backend/src/tournaments/` e as tabelas são `Tournament`,
+`TournamentEntry` e `TournamentPayment`.
+
+O organizador gere os torneios em `/backoffice/torneios`: cria e edita (jogo,
+plataforma opcional, dia, hora, taxa, vagas), abre e fecha inscrições, vê e exporta os
+inscritos em CSV, confirma ou cancela inscrições e volta a verificar pagamentos.
+As migrações criam os dois torneios iniciais **fechados**, com a inscrição de
+5.000 Kz do regulamento. O regulamento não indica dia, hora, vagas nem
+plataforma (as partidas são nos equipamentos da organização): as 32 vagas são
+provisórias e a plataforma fica vazia, por isso há que rever tudo antes de abrir.
+
+O pagamento segue as regras dos bilhetes: 5 minutos para pagar, cobrança
+pendente reaproveitada e confirmação sempre verificada na API da Vero. O
+webhook é o mesmo (`/api/payments/webhook`): uma transação que não pertence a
+uma reserva é encaminhada para as inscrições. O regresso da página de
+pagamento é `/api/tournament-payments/return/:inscricao`.
+
+Uma inscrição ocupa vaga enquanto está confirmada ou pendente dentro do prazo.
+Quando as vagas acabam, a API recusa novas inscrições. Uma referência paga
+depois do prazo confirma a inscrição na mesma, mesmo que o torneio fique acima
+do limite, e o log assinala-o. A inscrição no torneio não inclui o bilhete de
+entrada no evento.
 
 ## Validade dos bilhetes e check-in
 

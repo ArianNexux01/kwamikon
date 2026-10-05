@@ -1,13 +1,21 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { api, ApiError, type Payment, type PaymentMethod, type Reservation } from '../lib/api';
+import { ApiError, type PaymentBase, type PaymentMethod } from '../lib/api';
 import { formatKz } from '../lib/format';
 
-interface PaymentStepProps {
-  reservation: Reservation;
+interface PaymentStepProps<P extends PaymentBase> {
+  /** Id do pedido (reserva ou inscrição), usado nos ids do formulário. */
+  orderId: string;
+  amountKz: number;
+  /** Telemóvel sugerido no formulário (o contacto indicado no pedido). */
+  defaultPhone: string;
+  /** Cria a cobrança na Vero para este pedido. */
+  startPayment: (method: PaymentMethod, phone: string) => Promise<P>;
+  /** Consulta o estado de uma cobrança. */
+  fetchPayment: (id: string) => Promise<P>;
   /** Cobrança já iniciada (ex.: ao voltar da página de pagamento), retomada em vez de pedir outra. */
   initialPaymentId?: string;
-  onPaymentChange?: (payment: Payment | null) => void;
-  onPaid: (payment: Payment) => void;
+  onPaymentChange?: (payment: P | null) => void;
+  onPaid: (payment: P) => void;
   /** O pedido foi cancelado (pagamento falhou ou não foi feito a tempo): é preciso um pedido novo. */
   onCancelled: (message: string) => void;
 }
@@ -25,29 +33,37 @@ const SLOW_POLL_MS = 20_000;
 const FAST_POLL_WINDOW_MS = 2 * 60_000;
 
 /** Quando a cobrança acaba num destes estados o backend cancela o pedido. */
-const FINAL_MESSAGES: Partial<Record<Payment['status'], string>> = {
+const FINAL_MESSAGES: Partial<Record<PaymentBase['status'], string>> = {
   failed: 'O pagamento foi recusado e o pedido foi cancelado. Faz um novo pedido para tentares outra vez.',
   expired: 'O prazo para pagar terminou e o pedido foi cancelado. Faz um novo pedido para tentares outra vez.',
   cancelled: 'O pagamento não foi concluído a tempo e o pedido foi cancelado. Faz um novo pedido para tentares outra vez.',
 };
 
-export function PaymentStep({ reservation, initialPaymentId, onPaymentChange, onPaid, onCancelled }: PaymentStepProps) {
+export function PaymentStep<P extends PaymentBase>({
+  orderId,
+  amountKz,
+  defaultPhone,
+  startPayment,
+  fetchPayment,
+  initialPaymentId,
+  onPaymentChange,
+  onPaid,
+  onCancelled,
+}: PaymentStepProps<P>) {
   const [method, setMethod] = useState<PaymentMethod>('GPO');
-  const [phone, setPhone] = useState(reservation.contact.includes('@') ? '' : reservation.contact);
-  const [payment, setPayment] = useState<Payment | null>(null);
+  const [phone, setPhone] = useState(defaultPhone.includes('@') ? '' : defaultPhone);
+  const [payment, setPayment] = useState<P | null>(null);
   const [restoring, setRestoring] = useState(Boolean(initialPaymentId));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const total = reservation.ticketType.refPrice * reservation.quantity;
-
   // As callbacks vêm do pai e mudam a cada render; só queremos reagir a mudanças da cobrança.
-  const callbacks = useRef({ onPaymentChange, onPaid, onCancelled });
+  const callbacks = useRef({ onPaymentChange, onPaid, onCancelled, fetchPayment });
   useEffect(() => {
-    callbacks.current = { onPaymentChange, onPaid, onCancelled };
+    callbacks.current = { onPaymentChange, onPaid, onCancelled, fetchPayment };
   });
 
-  function showStatus(updated: Payment) {
+  function showStatus(updated: P) {
     const message = FINAL_MESSAGES[updated.status];
     if (message) {
       setPayment(null);
@@ -59,8 +75,8 @@ export function PaymentStep({ reservation, initialPaymentId, onPaymentChange, on
 
   useEffect(() => {
     if (!initialPaymentId) return;
-    api.payments
-      .status(initialPaymentId)
+    callbacks.current
+      .fetchPayment(initialPaymentId)
       .then(showStatus)
       .catch(() => undefined)
       .finally(() => setRestoring(false));
@@ -82,8 +98,8 @@ export function PaymentStep({ reservation, initialPaymentId, onPaymentChange, on
     function poll() {
       const delay = Date.now() - startedAt < FAST_POLL_WINDOW_MS ? FAST_POLL_MS : SLOW_POLL_MS;
       timer = window.setTimeout(() => {
-        api.payments
-          .status(payment!.id)
+        callbacks.current
+          .fetchPayment(payment!.id)
           .then((updated) => {
             if (cancelled) return;
             if (updated.status === 'pending') poll();
@@ -107,7 +123,7 @@ export function PaymentStep({ reservation, initialPaymentId, onPaymentChange, on
     setError(null);
     setSubmitting(true);
     try {
-      const created = await api.payments.create({ reservationId: reservation.id, method, phone: phone.trim() });
+      const created = await startPayment(method, phone.trim());
       if (!created.paymentUrl) {
         setError('Não foi possível abrir a página de pagamento. Tenta novamente dentro de instantes.');
         setSubmitting(false);
@@ -164,7 +180,7 @@ export function PaymentStep({ reservation, initialPaymentId, onPaymentChange, on
 
   return (
     <form onSubmit={handleSubmit} className="border-2 border-cream/15 bg-ink p-4">
-      <p className="text-sm font-extrabold text-cream">Pagar {formatKz(total)}</p>
+      <p className="text-sm font-extrabold text-cream">Pagar {formatKz(amountKz)}</p>
       <p className="mt-1 text-xs text-cream/50">
         Vais concluir o pagamento na página segura da Vero Pays e voltar aqui no fim. Tens {PAYMENT_WINDOW_MINUTES}{' '}
         minutos desde o pedido para pagar; se o pagamento não for confirmado nesse tempo, ou se falhar, o pedido é
@@ -187,11 +203,11 @@ export function PaymentStep({ reservation, initialPaymentId, onPaymentChange, on
       </div>
 
       <div className="mt-4">
-        <label htmlFor={`pay-phone-${reservation.id}`} className="block text-sm font-bold text-cream/80">
+        <label htmlFor={`pay-phone-${orderId}`} className="block text-sm font-bold text-cream/80">
           Telemóvel
         </label>
         <input
-          id={`pay-phone-${reservation.id}`}
+          id={`pay-phone-${orderId}`}
           required
           inputMode="tel"
           value={phone}

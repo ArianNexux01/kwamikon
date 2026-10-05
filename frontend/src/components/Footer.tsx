@@ -2,6 +2,10 @@ import { NavLink } from 'react-router-dom';
 import logoNexusWhite from '../assets/brand/logo-nexus-white.png';
 import { EVENT } from '../lib/site-content';
 
+function scrollToTop() {
+  window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+}
+
 export function Footer() {
   return (
     <footer className="grain relative overflow-hidden border-t border-white/10 bg-ink-soft bg-ink">
@@ -19,11 +23,12 @@ export function Footer() {
           <div>
             <h3 className="text-sm font-bold uppercase tracking-widest text-magenta">Navegação</h3>
             <ul className="mt-4 space-y-2 text-sm text-cream/80">
-              <li><NavLink to="/sobre" className="hover:text-yellow">Sobre o Kwamikon</NavLink></li>
-              <li><NavLink to="/programacao" className="hover:text-yellow">Programação</NavLink></li>
-              <li><NavLink to="/bilhetes" className="hover:text-yellow">Bilhetes</NavLink></li>
-              <li><NavLink to="/eu-vou" className="hover:text-yellow">Eu vou</NavLink></li>
-              <li><NavLink to="/faq" className="hover:text-yellow">Perguntas frequentes</NavLink></li>
+              <li><NavLink to="/sobre" onClick={scrollToTop} className="hover:text-yellow">Sobre o Kwamikon</NavLink></li>
+              <li><NavLink to="/programacao" onClick={scrollToTop} className="hover:text-yellow">Programação</NavLink></li>
+              <li><NavLink to="/bilhetes" onClick={scrollToTop} className="hover:text-yellow">Bilhetes</NavLink></li>
+              <li><NavLink to="/torneios" onClick={scrollToTop} className="hover:text-yellow">Torneios</NavLink></li>
+              <li><NavLink to="/eu-vou" onClick={scrollToTop} className="hover:text-yellow">Eu vou</NavLink></li>
+              <li><NavLink to="/faq" onClick={scrollToTop} className="hover:text-yellow">Perguntas frequentes</NavLink></li>
             </ul>
           </div>
 

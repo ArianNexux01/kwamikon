@@ -8,6 +8,7 @@ import { api, ApiError, type Payment, type Reservation, type TicketType } from '
 import { formatKz } from '../lib/format';
 import { EVENT } from '../lib/site-content';
 import { loadCheckout, saveCheckout } from '../lib/checkout';
+import { BackButton, ErrorMessage, Field, PrimaryButton } from '../components/FormParts';
 
 export function Bilhetes() {
   const [searchParams] = useSearchParams();
@@ -285,7 +286,13 @@ export function Bilhetes() {
             </p>
             <div className="mt-5">
               <PaymentStep
-                reservation={reservation}
+                orderId={reservation.id}
+                amountKz={reservation.ticketType.refPrice * reservation.quantity}
+                defaultPhone={reservation.contact}
+                startPayment={(method, phone) =>
+                  api.payments.create({ reservationId: reservation.id, method, phone })
+                }
+                fetchPayment={api.payments.status}
                 initialPaymentId={paymentId}
                 onPaymentChange={handlePaymentChange}
                 onPaid={handlePaid}
@@ -320,51 +327,5 @@ function Summary({ type, quantity, contact }: { type?: TicketType; quantity: num
         <p className="mt-4 text-sm text-cream/50">Escolhe um tipo de bilhete para veres o resumo.</p>
       )}
     </aside>
-  );
-}
-
-function PrimaryButton({
-  children,
-  ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { children: React.ReactNode }) {
-  return (
-    <button
-      {...props}
-      className="focus-ring cut-tag rotate-1 bg-magenta px-8 py-3 text-sm font-extrabold uppercase tracking-wide text-cream transition-transform hover:-rotate-1 hover:scale-105 disabled:opacity-50"
-    >
-      {children}
-    </button>
-  );
-}
-
-function BackButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="focus-ring text-sm font-bold text-cream/60 underline underline-offset-4 hover:text-cream"
-    >
-      Voltar
-    </button>
-  );
-}
-
-function ErrorMessage({ message }: { message: string | null }) {
-  if (!message) return null;
-  return (
-    <p role="alert" className="mt-4 border-l-4 border-magenta bg-magenta/10 px-4 py-3 text-sm text-cream">
-      {message}
-    </p>
-  );
-}
-
-function Field({ label, htmlFor, children }: { label: string; htmlFor: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label htmlFor={htmlFor} className="block text-sm font-bold text-cream/80">
-        {label}
-      </label>
-      <div className="mt-1.5">{children}</div>
-    </div>
   );
 }
