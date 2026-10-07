@@ -1,0 +1,55 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+        # Em produção o browser envia pelo mesmo domínio (/otel/ no nginx); o CORS só
+        # serve para o Vite em desenvolvimento enviar diretamente para a porta 4318.
+        cors:
+          allowed_origins:
+            - http://localhost:*
+            - http://127.0.0.1:*
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+  batch: {}
+
+exporters:
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  # O Prometheus faz scrape desta porta. O service.name de cada serviço passa a ser a
+  # etiqueta "job" (ex.: job="kwamikon-api"), por isso o scrape usa honor_labels.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    metric_expiration: 10m
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888

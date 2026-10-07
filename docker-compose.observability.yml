@@ -1,0 +1,118 @@
+# Observabilidade: OpenTelemetry Collector + Prometheus + Tempo + Grafana,
+# com node-exporter (CPU, RAM, disco do servidor) e cAdvisor (recursos de cada container).
+#
+# Junta-se a qualquer um dos compose da aplicação:
+#   desenvolvimento: docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --build
+#   produção:        docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml up -d
+#
+# Fluxo:
+#   API (OTLP)  ─┐
+#   browser ─────┼─> otel-collector ─┬─> métricas: Prometheus (scrape :8889)
+#   (via /otel/) ┘                   └─> traces:   Tempo
+#   node-exporter, cAdvisor ──────────────> Prometheus ──> Grafana <── Tempo
+#
+# Portas só em 127.0.0.1. Em produção o Grafana fica em https://<dominio>/grafana/
+# (ver deploy/nginx/kwamikon.conf); o Prometheus acede-se por túnel SSH se for preciso.
+
+services:
+  backend:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: kwamikon-api
+    depends_on:
+      - otel-collector
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.120.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      # OTLP/HTTP: só para o frontend em modo dev (npm run dev) enviar traces diretamente.
+      - "127.0.0.1:4318:4318"
+    depends_on:
+      - tempo
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
+      - --web.enable-lifecycle
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.7.1
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    # A imagem corre como 10001, mas o volume novo pertence ao root.
+    user: "0"
+    volumes:
+      - ./observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.5.2
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # Em produção: GRAFANA_ROOT_URL=https://<dominio>/grafana/ (o nginx encaminha /grafana/).
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000/}
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/kwamikon-visitantes.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+      - tempo
+    restart: unless-stopped
+
+  # Métricas do servidor: CPU, memória, disco, carga, uptime.
+  node-exporter:
+    image: prom/node-exporter:v1.9.0
+    command:
+      - --path.rootfs=/host
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/docker/.+|host/(dev|proc|sys|run|var/lib/docker/.+))($$|/)
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    restart: unless-stopped
+
+  # CPU, memória, rede e disco de cada container.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=15s
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.service,com.docker.compose.project
+      - --disable_metrics=percpu,sched,tcp,udp,hugetlb,referenced_memory,cpu_topology,resctrl,process
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  tempo_data:
+  grafana_data:

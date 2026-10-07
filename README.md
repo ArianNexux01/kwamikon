@@ -327,3 +327,67 @@ HTTP e de `www` para `https://<dominio>`, HTTP/2, HSTS e outros cabeçalhos de
 segurança, gzip, limite de pedidos na API (mais apertado no login do
 backoffice, sem limite no webhook da Vero) e cache longa para os ficheiros do
 build.
+
+## Observabilidade (Grafana, Prometheus, OpenTelemetry)
+
+A stack de observabilidade está em `docker-compose.observability.yml` e junta-se
+ao compose da aplicação, em desenvolvimento ou em produção:
+
+```bash
+# desenvolvimento
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --build
+
+# produção (VPS)
+docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml pull
+docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml up -d
+```
+
+Sem este ficheiro a aplicação corre como antes: a API só activa o OpenTelemetry
+quando `OTEL_EXPORTER_OTLP_ENDPOINT` está definido, e o nginx do frontend responde
+502 em `/otel/` sem afetar o resto do site.
+
+| Serviço | Função | Acesso |
+| --- | --- | --- |
+| `otel-collector` | Recebe traces e métricas OTLP da API e do browser; envia métricas para o Prometheus e traces para o Tempo | `127.0.0.1:4318` (OTLP/HTTP) |
+| `prometheus` | Guarda as métricas (30 dias por omissão, `PROMETHEUS_RETENTION`) | `http://127.0.0.1:9090` |
+| `tempo` | Guarda os traces (7 dias) | via Grafana |
+| `grafana` | Dashboards | `http://localhost:3000` em dev, `https://<dominio>/grafana/` em produção |
+| `node-exporter` | CPU, memória, disco, carga e uptime do servidor | via Prometheus |
+| `cadvisor` | CPU, memória, rede e disco de cada container | via Prometheus |
+
+O Grafana arranca com os datasources e três dashboards já configurados (pasta
+"Kwamikon"):
+
+- **Visitantes e vendas** (página inicial): visitantes activos agora, visitantes
+  únicos hoje / 24 h / 7 dias / total, sessões, páginas vistas por página, origem
+  das visitas (Google, Instagram, WhatsApp, direto...), dispositivo, visitantes
+  novos e recorrentes, Core Web Vitals (LCP, INP, CLS, FCP, TTFB), reservas por
+  estado, bilhetes vendidos, receita, pagamentos, check-ins e inscrições em torneios.
+- **API**: pedidos por segundo, erros 4xx/5xx, latência p50/p95/p99 por rota,
+  event loop, heap e CPU/memória do processo Node, com ligação aos traces.
+- **Infraestrutura**: CPU, memória, disco, carga e rede do servidor e de cada container.
+
+Os traces aparecem em Explore → Tempo. Um pedido feito no site gera um trace no
+browser (`kwamikon-frontend`) ligado ao trace da API (`kwamikon-api`), incluindo
+as queries do Prisma.
+
+**Como são contados os visitantes.** O site público envia
+`POST /api/analytics/pageview` em cada mudança de página (o backoffice não conta),
+com um UUID aleatório do browser (`localStorage`) e outro da sessão
+(`sessionStorage`). Não há cookies e o IP não é guardado. As visualizações ficam na
+tabela `PageView` e a API calcula a partir dela, a cada 30 segundos, os visitantes
+únicos e as sessões, que por isso não se perdem quando a API reinicia. Os bots
+conhecidos são ignorados pelo user-agent. Os Web Vitals seguem para
+`POST /api/analytics/web-vitals`.
+
+Em produção, antes do primeiro arranque, definir no `.env` da raiz
+`GRAFANA_ADMIN_PASSWORD` e `GRAFANA_ROOT_URL=https://<dominio>/grafana/` (ver
+`.env.example`), e voltar a correr `deploy/setup-server.sh` para instalar a
+configuração do nginx com `/grafana/` e os limites de `/otel/` e
+`/api/analytics/`. A password do Grafana só é aplicada quando o volume
+`grafana_data` é criado; depois disso muda-se na própria interface.
+
+Em desenvolvimento com `npm run dev`, o frontend pode enviar traces diretamente
+para o collector definindo `VITE_OTEL_TRACES_URL=http://localhost:4318/v1/traces`
+em `frontend/.env`, e a API com `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`
+em `backend/.env`.

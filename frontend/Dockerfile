@@ -4,6 +4,10 @@ WORKDIR /app
 
 ARG VITE_API_URL=http://localhost:3333/api
 ENV VITE_API_URL=$VITE_API_URL
+# Traces do browser: o nginx desta imagem encaminha /otel/ para o OpenTelemetry Collector.
+# Passar --build-arg VITE_OTEL_TRACES_URL= (vazio) para desligar.
+ARG VITE_OTEL_TRACES_URL=/otel/v1/traces
+ENV VITE_OTEL_TRACES_URL=$VITE_OTEL_TRACES_URL
 
 COPY package.json package-lock.json ./
 RUN npm ci

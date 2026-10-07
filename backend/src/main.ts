@@ -1,3 +1,5 @@
+// Tem de ser o primeiro import: instala as instrumentações antes de http/express carregarem.
+import './telemetry';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';

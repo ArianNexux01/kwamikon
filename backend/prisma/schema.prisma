@@ -1,5 +1,7 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // Necessário para @prisma/instrumentation gerar spans das queries (OpenTelemetry).
+  previewFeatures = ["tracing"]
 }
 
 datasource db {
@@ -209,4 +211,22 @@ model ProgramItem {
   updatedAt   DateTime @updatedAt
 
   @@index([eventDay, startTime])
+}
+
+/// Visualização de página do site público, enviada pelo frontend. Serve para contar
+/// visitantes únicos e sessões (métricas kwamikon_* no Grafana). É anónima: o visitorId
+/// é um UUID aleatório guardado no browser e o IP não é registado.
+/// Device: "mobile" | "tablet" | "desktop"
+model PageView {
+  id        String   @id @default(uuid())
+  visitorId String
+  sessionId String
+  path      String
+  /// Origem da sessão (ex.: "google", "instagram", "direto"); só na primeira página da sessão.
+  source    String?
+  device    String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([visitorId])
 }

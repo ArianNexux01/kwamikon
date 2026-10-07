@@ -10,6 +10,7 @@ import { GalleryModule } from './gallery/gallery.module';
 import { FaqModule } from './faq/faq.module';
 import { TournamentsModule } from './tournaments/tournaments.module';
 import { ProgramModule } from './program/program.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { ProgramModule } from './program/program.module';
     FaqModule,
     TournamentsModule,
     ProgramModule,
+    AnalyticsModule,
   ],
 })
 export class AppModule {}
