@@ -20,9 +20,10 @@ scrape_configs:
         labels:
           instance: servidor
 
-  - job_name: cadvisor
+  # Recursos de cada container (CPU, memória, rede, disco, reinícios).
+  - job_name: docker
     static_configs:
-      - targets: ["cadvisor:8080"]
+      - targets: ["docker-stats:8889"]
 
   - job_name: prometheus
     static_configs:

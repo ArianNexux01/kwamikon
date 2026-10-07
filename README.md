@@ -353,7 +353,7 @@ quando `OTEL_EXPORTER_OTLP_ENDPOINT` está definido, e o nginx do frontend respo
 | `tempo` | Guarda os traces (7 dias) | via Grafana |
 | `grafana` | Dashboards | `http://localhost:3000` em dev, `https://<dominio>/grafana/` em produção |
 | `node-exporter` | CPU, memória, disco, carga e uptime do servidor | via Prometheus |
-| `cadvisor` | CPU, memória, rede e disco de cada container | via Prometheus |
+| `docker-stats` | CPU, memória, rede, disco e reinícios de cada container (receiver `docker_stats` do OpenTelemetry Collector, lê a API do Docker) | via Prometheus |
 
 O Grafana arranca com os datasources e três dashboards já configurados (pasta
 "Kwamikon"):
@@ -367,9 +367,16 @@ O Grafana arranca com os datasources e três dashboards já configurados (pasta
   event loop, heap e CPU/memória do processo Node, com ligação aos traces.
 - **Infraestrutura**: CPU, memória, disco, carga e rede do servidor e de cada container.
 
+Os dashboards são gerados por `observability/grafana/generate-dashboards.py`
+(`python observability/grafana/generate-dashboards.py observability/grafana/dashboards`);
+alterações feitas na interface do Grafana não são guardadas, por isso mudam-se no
+script. O Grafana relê a pasta a cada 30 segundos.
+
 Os traces aparecem em Explore → Tempo. Um pedido feito no site gera um trace no
-browser (`kwamikon-frontend`) ligado ao trace da API (`kwamikon-api`), incluindo
-as queries do Prisma.
+browser (`kwamikon-frontend`) ligado ao trace da API (`kwamikon-api`), com os
+handlers do NestJS. As queries do Prisma não têm spans próprios: o
+`@prisma/instrumentation` do Prisma 5 não é compatível com o SDK OpenTelemetry 2.x
+(passa a ser possível ao actualizar para o Prisma 6).
 
 **Como são contados os visitantes.** O site público envia
 `POST /api/analytics/pageview` em cada mudança de página (o backoffice não conta),

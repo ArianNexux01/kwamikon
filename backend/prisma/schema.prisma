@@ -1,7 +1,5 @@
 generator client {
-  provider        = "prisma-client-js"
-  // Necessário para @prisma/instrumentation gerar spans das queries (OpenTelemetry).
-  previewFeatures = ["tracing"]
+  provider = "prisma-client-js"
 }
 
 datasource db {

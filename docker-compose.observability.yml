@@ -1,5 +1,5 @@
 # Observabilidade: OpenTelemetry Collector + Prometheus + Tempo + Grafana,
-# com node-exporter (CPU, RAM, disco do servidor) e cAdvisor (recursos de cada container).
+# com node-exporter (CPU, RAM, disco do servidor) e docker-stats (recursos de cada container).
 #
 # Junta-se a qualquer um dos compose da aplicação:
 #   desenvolvimento: docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --build
@@ -9,7 +9,7 @@
 #   API (OTLP)  ─┐
 #   browser ─────┼─> otel-collector ─┬─> métricas: Prometheus (scrape :8889)
 #   (via /otel/) ┘                   └─> traces:   Tempo
-#   node-exporter, cAdvisor ──────────────> Prometheus ──> Grafana <── Tempo
+#   node-exporter, docker-stats ──────────> Prometheus ──> Grafana <── Tempo
 #
 # Portas só em 127.0.0.1. Em produção o Grafana fica em https://<dominio>/grafana/
 # (ver deploy/nginx/kwamikon.conf); o Prometheus acede-se por túnel SSH se for preciso.
@@ -86,30 +86,27 @@ services:
   node-exporter:
     image: prom/node-exporter:v1.9.0
     command:
-      - --path.rootfs=/host
-      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/docker/.+|host/(dev|proc|sys|run|var/lib/docker/.+))($$|/)
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/docker/.+)($$|/)
     pid: host
     volumes:
-      - /:/host:ro,rslave
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
     restart: unless-stopped
 
-  # CPU, memória, rede e disco de cada container.
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
-    command:
-      - --docker_only=true
-      - --housekeeping_interval=15s
-      - --store_container_labels=false
-      - --whitelisted_container_labels=com.docker.compose.service,com.docker.compose.project
-      - --disable_metrics=percpu,sched,tcp,udp,hugetlb,referenced_memory,cpu_topology,resctrl,process
-    privileged: true
-    devices:
-      - /dev/kmsg
+  # CPU, memória, rede e disco de cada container, lidos da API do Docker (receiver
+  # docker_stats). Collector separado do otel-collector porque precisa do socket do
+  # Docker (e de root para o ler) e não deve receber tráfego vindo do browser.
+  docker-stats:
+    image: otel/opentelemetry-collector-contrib:0.120.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    user: "0"
     volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
+      - ./observability/otel-collector/docker-stats.yaml:/etc/otelcol/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
 
 volumes:

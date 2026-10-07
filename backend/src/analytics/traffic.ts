@@ -22,15 +22,16 @@ export function normalizePath(path: string): string {
   return KNOWN_PATHS.has(clean) ? clean : 'outra';
 }
 
+/** Cada padrão aceita o domínio do referrer e o nome simples usado em utm_source. */
 const SOURCES: [RegExp, string][] = [
-  [/(^|\.)google\./, 'google'],
-  [/(^|\.)(bing|duckduckgo|yahoo)\./, 'pesquisa'],
-  [/(^|\.)instagram\.com$|^ig$/, 'instagram'],
+  [/(^|\.)google\.|^google$/, 'google'],
+  [/(^|\.)(bing|duckduckgo|yahoo)\.|^(bing|duckduckgo|yahoo)$/, 'pesquisa'],
+  [/(^|\.)instagram\.com$|^(ig|instagram)$/, 'instagram'],
   [/(^|\.)(facebook\.com|fb\.com|fb\.me)$|^(fb|facebook)$/, 'facebook'],
-  [/(^|\.)(whatsapp\.com|wa\.me)$|^whatsapp$/, 'whatsapp'],
+  [/(^|\.)(whatsapp\.com|wa\.me)$|^(wa|whatsapp)$/, 'whatsapp'],
   [/(^|\.)tiktok\.com$|^tiktok$/, 'tiktok'],
   [/(^|\.)(twitter\.com|x\.com|t\.co)$|^(twitter|x)$/, 'x'],
-  [/(^|\.)(youtube\.com|youtu\.be)$|^youtube$/, 'youtube'],
+  [/(^|\.)(youtube\.com|youtu\.be)$|^(yt|youtube)$/, 'youtube'],
   [/(^|\.)(linkedin\.com|lnkd\.in)$|^linkedin$/, 'linkedin'],
 ];
 

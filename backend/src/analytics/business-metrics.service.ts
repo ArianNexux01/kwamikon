@@ -8,6 +8,7 @@ import { Attributes, metrics } from '@opentelemetry/api';
 import { PrismaService } from '../prisma/prisma.service';
 import { eventDayOf } from '../common/event-days';
 import { telemetryEnabled } from '../telemetry';
+import { normalizePath } from './traffic';
 
 type Sample = { value: number; attributes: Attributes };
 
@@ -46,6 +47,16 @@ export class BusinessMetricsService implements OnModuleInit, OnModuleDestroy {
       [
         'kwamikon.page_views.by_period',
         'Páginas vistas por período (guardadas na base de dados)',
+      ],
+      ['kwamikon.page_views.by_path', 'Páginas vistas por período e página'],
+      ['kwamikon.sessions.by_source', 'Sessões por período e origem'],
+      [
+        'kwamikon.visitors.by_device',
+        'Visitantes únicos por período e dispositivo',
+      ],
+      [
+        'kwamikon.visitors.by_type',
+        'Visitantes únicos por período: novos (primeira visita no período) ou recorrentes',
       ],
       ['kwamikon.reservations', 'Reservas de bilhetes por estado'],
       [
@@ -135,12 +146,81 @@ export class BusinessMetricsService implements OnModuleInit, OnModuleDestroy {
       new Date(now - ACTIVE_WINDOW_MS),
     );
 
+    // Distribuições calculadas a partir da tabela: ao contrário dos contadores, são
+    // exatas para qualquer período e sobrevivem a reinícios da API.
+    const byPath: Sample[] = [];
+    const bySource: Sample[] = [];
+    const byDevice: Sample[] = [];
+    const byType: Sample[] = [];
+    for (const [period, since] of periods) {
+      const [paths, sources, devices, newVisitors] = await Promise.all([
+        this.groupCount('"path"', 'COUNT(*)', since),
+        this.groupCount(
+          '"source"',
+          'COUNT(DISTINCT "sessionId")',
+          since,
+          '"source" IS NOT NULL',
+        ),
+        this.groupCount('"device"', 'COUNT(DISTINCT "visitorId")', since),
+        this.prisma.$queryRawUnsafe<{ n: bigint | number }[]>(
+          `SELECT COUNT(*) AS n FROM (SELECT "visitorId" FROM "PageView"
+             GROUP BY "visitorId" HAVING MIN("createdAt") >= ?)`,
+          since,
+        ),
+      ]);
+
+      // Vários caminhos guardados (ex.: /bilhetes/ e /bilhetes) contam como a mesma página.
+      const pathTotals = new Map<string, number>();
+      for (const [path, n] of paths) {
+        const key = normalizePath(path);
+        pathTotals.set(key, (pathTotals.get(key) ?? 0) + n);
+      }
+      for (const [path, n] of pathTotals)
+        byPath.push({ value: n, attributes: { period, path } });
+      for (const [source, n] of sources)
+        bySource.push({ value: n, attributes: { period, source } });
+      for (const [device, n] of devices)
+        byDevice.push({ value: n, attributes: { period, device } });
+
+      const total = unique.find((u) => u.attributes.period === period).value;
+      const novos = Number(newVisitors[0]?.n ?? 0);
+      byType.push(
+        { value: novos, attributes: { period, visitor_type: 'novo' } },
+        {
+          value: total - novos,
+          attributes: { period, visitor_type: 'recorrente' },
+        },
+      );
+    }
+
     return {
       'kwamikon.visitors.active': [{ value: active, attributes: {} }],
       'kwamikon.visitors.unique': unique,
       'kwamikon.sessions': sessions,
       'kwamikon.page_views.by_period': views,
+      'kwamikon.page_views.by_path': byPath,
+      'kwamikon.sessions.by_source': bySource,
+      'kwamikon.visitors.by_device': byDevice,
+      'kwamikon.visitors.by_type': byType,
     };
+  }
+
+  /** Pares [valor da coluna, contagem] das visualizações desde `since`. */
+  private async groupCount(
+    column: string,
+    expr: string,
+    since: Date,
+    extraWhere?: string,
+  ): Promise<[string, number][]> {
+    const where = extraWhere ? ` AND ${extraWhere}` : '';
+    const rows = await this.prisma.$queryRawUnsafe<
+      { k: string; n: bigint | number }[]
+    >(
+      `SELECT ${column} AS k, ${expr} AS n FROM "PageView"
+         WHERE "createdAt" >= ?${where} GROUP BY ${column}`,
+      since,
+    );
+    return rows.map((r) => [r.k, Number(r.n)]);
   }
 
   private async businessSamples(): Promise<Record<string, Sample[]>> {

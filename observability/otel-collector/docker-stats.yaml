@@ -1,0 +1,37 @@
+# Métricas de cada container a partir da API do Docker (equivalente a "docker stats").
+receivers:
+  docker_stats:
+    endpoint: unix:///var/run/docker.sock
+    collection_interval: 15s
+    timeout: 10s
+    # O Docker 29 recusa versões da API abaixo da 1.44.
+    api_version: "1.44"
+    container_labels_to_metric_labels:
+      com.docker.compose.project: compose_project
+      com.docker.compose.service: compose_service
+    metrics:
+      container.restarts:
+        enabled: true
+      container.uptime:
+        enabled: true
+
+processors:
+  batch: {}
+
+exporters:
+  # Os atributos do container (nome, imagem, serviço do compose) passam a etiquetas.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      enabled: true
+    metric_expiration: 2m
+
+service:
+  pipelines:
+    metrics:
+      receivers: [docker_stats]
+      processors: [batch]
+      exporters: [prometheus]
+  telemetry:
+    metrics:
+      level: none

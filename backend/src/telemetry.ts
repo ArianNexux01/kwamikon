@@ -1,5 +1,5 @@
 /**
- * OpenTelemetry da API: traces (pedidos HTTP, Express, NestJS, Prisma) e métricas
+ * OpenTelemetry da API: traces (pedidos HTTP, Express, NestJS) e métricas
  * (pedidos HTTP, runtime do Node, CPU/memória do processo e métricas de negócio).
  *
  * Tem de ser importado antes de qualquer outro módulo (ver main.ts) para que as
@@ -24,7 +24,6 @@ import { ExpressInstrumentation } from '@opentelemetry/instrumentation-express';
 import { NestInstrumentation } from '@opentelemetry/instrumentation-nestjs-core';
 import { RuntimeNodeInstrumentation } from '@opentelemetry/instrumentation-runtime-node';
 import { HostMetrics } from '@opentelemetry/host-metrics';
-import { PrismaInstrumentation } from '@prisma/instrumentation';
 
 export const telemetryEnabled = Boolean(
   process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
@@ -55,7 +54,6 @@ if (telemetryEnabled) {
       new ExpressInstrumentation(),
       new NestInstrumentation(),
       new RuntimeNodeInstrumentation(),
-      new PrismaInstrumentation(),
     ],
   });
 
